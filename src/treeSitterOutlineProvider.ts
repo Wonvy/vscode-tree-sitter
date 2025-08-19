@@ -28,6 +28,13 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     private currentFunctions: FunctionInfo[] = [];
     private currentOutlineItems: OutlineItem[] = [];
     private cursorChangeListener: vscode.Disposable | null = null;
+    
+    // 新增：绑定 TreeView 句柄和抑制标志
+    private treeView?: vscode.TreeView<OutlineItem>;
+    private suppressSelectionSync = false;
+
+    // 新增：记录上一次高亮的条目，避免重复刷新/闪烁
+    private lastHighlightedItem: OutlineItem | null = null;
 
     constructor(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
         this.extensionUri = extensionUri;
@@ -563,6 +570,9 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         const LOG_INTERVAL = 3000; // 增加到3秒，进一步减少日志频率
         
         vscode.window.onDidChangeTextEditorSelection(event => {
+            // 检查抑制标志，避免循环触发
+            if (this.suppressSelectionSync) return;
+            
             // 检查当前编辑器是否是代码文档
             const currentEditor = vscode.window.activeTextEditor;
             if (!currentEditor || event.textEditor !== currentEditor) {
@@ -718,29 +728,43 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             return; // 没有加载函数大纲，跳过
         }
         
-        // 清除之前的高亮
-        this.clearAllHighlights();
-        
-        // 查找对应的OutlineItem
+        // 查找对应的OutlineItem（先找出来再决定是否需要刷新）
         const outlineItem = this.findOutlineItemByLine(lineNumber);
-        
-        if (outlineItem) {
-            // 设置高亮
-            outlineItem.setHighlighted(true);
-            
-            // 确保包含该函数的父节点是展开状态
-            this.ensureParentExpanded(outlineItem);
-            
-            // 强制刷新高亮状态，但不重新解析文档
-            this.forceRefreshHighlight();
-            
-            const timestamp = new Date().toLocaleTimeString();
-            this.outputChannel.appendLine(`[${timestamp}] 🎯 高亮函数: ${outlineItem.label} (第${lineNumber}行)`);
-        } else {
-            // 只在代码文档中记录未找到函数的警告，避免在输出窗口等地方产生大量日志
+        if (!outlineItem) {
             const timestamp = new Date().toLocaleTimeString();
             this.outputChannel.appendLine(`[${timestamp}] ⚠️ 第${lineNumber}行未找到对应的函数`);
+            return;
         }
+
+        // 若与上一次高亮同一项，避免重复清空/刷新/展开/选中，减少闪烁
+        if (this.lastHighlightedItem === outlineItem) {
+            // 仍确保父节点是展开状态（多数情况下已展开，此操作很快）
+            this.ensureParentExpanded(outlineItem);
+            return;
+        }
+
+        // 不同项：先清除旧高亮，再设置新高亮
+        this.clearAllHighlights();
+
+        outlineItem.setHighlighted(true);
+        this.ensureParentExpanded(outlineItem);
+
+        // 刷新高亮但不重新解析
+        this.forceRefreshHighlight();
+
+        // 更新最新高亮项
+        this.lastHighlightedItem = outlineItem;
+
+        // 选中并展开大纲项：用抑制标志 + try/finally 防止异常后标志卡死
+        this.suppressSelectionSync = true;
+        try {
+            this.treeView?.reveal(outlineItem, { select: true, focus: false, expand: true });
+        } finally {
+            setTimeout(() => { this.suppressSelectionSync = false; }, 120);
+        }
+
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🎯 高亮函数: ${outlineItem.label} (第${lineNumber}行)`);
     }
 
     private refreshTimeout: NodeJS.Timeout | undefined;
@@ -763,6 +787,8 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         if (this.currentOutlineItems) {
             this.clearHighlightsRecursive(this.currentOutlineItems);
         }
+        // 同步重置上次记录，避免“同项短路”误判
+        this.lastHighlightedItem = null;
     }
 
     private clearHighlightsRecursive(items: OutlineItem[]): void {
@@ -802,6 +828,14 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
 
     public getCurrentOutlineItems(): OutlineItem[] {
         return this.currentOutlineItems;
+    }
+
+    /**
+     * 绑定 TreeView 句柄，以便后续选中并展开大纲项
+     */
+    public bindTreeView(view: vscode.TreeView<OutlineItem>) {
+        this.treeView = view;
+        this.outputChannel.appendLine('✅ TreeView 句柄绑定成功');
     }
 
     public isOutlineLoaded(): boolean {
