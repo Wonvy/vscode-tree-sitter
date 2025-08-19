@@ -29,6 +29,21 @@
         "command": "tree-sitter-outline.refresh",
         "title": "刷新函数大纲",
         "category": "Tree-sitter Outline"
+      },
+      {
+        "command": "tree-sitter-outline.checkStatus",
+        "title": "检查函数大纲状态",
+        "category": "Tree-sitter Outline"
+      },
+      {
+        "command": "tree-sitter-outline.testHighlight",
+        "title": "测试高亮功能",
+        "category": "Tree-sitter Outline"
+      },
+      {
+        "command": "tree-sitter-outline.jumpToFunction",
+        "title": "跳转到函数",
+        "category": "Tree-sitter Outline"
       }
     ],
     "menus": {
