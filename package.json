@@ -1,0 +1,87 @@
+{
+  "name": "vscode-tree-sitter-outline",
+  "displayName": "Tree-sitter Outline",
+  "description": "在VSCode中显示函数大纲和中文注释，支持Python、JavaScript、TypeScript、C#等语言",
+  "version": "0.0.1",
+  "publisher": "tree-sitter-outline",
+  "icon": "icon-128.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/vscode-tree-sitter.git"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:python",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:csharp"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tree-sitter-outline.refresh",
+        "title": "刷新函数大纲",
+        "category": "Tree-sitter Outline"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "tree-sitter-outline.refresh",
+          "when": "view == tree-sitter-outline",
+          "group": "navigation"
+        }
+      ]
+    },
+    "views": {
+      "tree-sitter-explorer": [
+        {
+          "id": "tree-sitter-outline",
+          "name": "函数大纲",
+          "when": "resourceLangId == python || resourceLangId == javascript || resourceLangId == typescript || resourceLangId == csharp"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tree-sitter-explorer",
+          "title": "函数大纲",
+          "icon": "icon-32.png"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "16.x",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^5.42.0",
+    "@typescript-eslint/parser": "^5.42.0",
+    "eslint": "^8.26.0",
+    "typescript": "^4.8.4"
+  },
+  "dependencies": {
+    "web-tree-sitter": "^0.25.8"
+  },
+  "files": [
+    "out/**/*",
+    "public/**/*",
+    "icon-*.png"
+  ]
+}
