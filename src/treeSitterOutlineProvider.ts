@@ -333,10 +333,11 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         }
         const items = Array.from(uniqMap.values());
 
-        // 2) 只允许这些类型成为“容器”节点（可拥有子节点）
-        const CONTAINER = new Set(['namespace', 'class', 'method']); 
-        // ↑ 如果你只想让 “namespace / class” 才能容纳子级，把 'method' 去掉；
-        //   如果你要支持“方法内本地函数”，就保留 'method'
+        // 2) 只允许这些类型成为"容器"节点（可拥有子节点）
+        const CONTAINER = new Set(['namespace', 'class', 'method', 'function']); 
+        // ↑ 添加 'function' 支持JavaScript顶级函数作为容器
+        //   如果你只想让 "namespace / class" 才能容纳子级，把 'method' 和 'function' 去掉；
+        //   如果你要支持"方法内本地函数"和"函数内嵌套函数"，就保留 'method' 和 'function'
 
         // 3) 排序：按起始行升序，结束行降序（大区间在前，可作为父）
         items.sort((a, b) => {
@@ -381,7 +382,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             parent.startLine <= child.startLine && parent.endLine >= child.endLine;
 
         const canContain = (parent: FunctionInfo, child: FunctionInfo) => {
-            // 类型约束，禁止“函数成为命名空间的父”等奇怪结构
+            // 类型约束，禁止"函数成为命名空间的父"等奇怪结构
             if (!CONTAINER.has(parent.type)) return false;
 
             // C# 常识：namespace 可含 namespace/class；class 可含 class/method/event/constructor 等；
@@ -394,6 +395,10 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             }
             if (parent.type === 'method') {
                 return child.type === 'function'; // 本地函数
+            }
+            // 新增：JavaScript函数可以包含其他函数（嵌套函数）
+            if (parent.type === 'function') {
+                return child.type === 'function'; // 函数可以包含嵌套函数
             }
             return false;
         };

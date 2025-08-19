@@ -18,27 +18,154 @@ export class JavaScriptParser {
         this.outputChannel.appendLine(`🔍 根节点类型: ${rootNode.type}`);
         this.outputChannel.appendLine(`🔍 根节点子节点数量: ${rootNode.children.length}`);
         
-        // 遍历所有节点，找到类声明和方法
+
         this.traverseTree(rootNode, (node) => {
             this.outputChannel.appendLine(`🔍 检查节点: ${node.type}, 文本: "${node.text?.substring(0, 100)}..."`);
-            
+
             if (node.type === 'class_declaration') {
                 this.outputChannel.appendLine(`✅ 发现类声明节点`);
-                // 处理类声明
                 this.processClassDeclaration(node, functions, language);
-            } else if (node.type === 'function_declaration') {
-                // 只处理顶级函数声明，确保有函数名
-                const functionName = this.findJavaScriptFunctionName(node);
-                if (functionName && functionName !== 'anonymous' && this.isValidFunctionName(functionName)) {
-                    this.outputChannel.appendLine(`✅ 发现顶级函数声明节点: ${functionName}`);
-                    // 处理顶级函数声明
-                    this.processTopLevelFunction(node, functions, language);
+                return;
+            }
+
+            // 统一收集任意层级函数：声明、表达式、箭头函数
+            if (
+                node.type === 'function_declaration' ||
+                node.type === 'function_expression' ||
+                node.type === 'arrow_function'
+            ) {
+                const info = this.extractAnyFunction(node, language);
+                if (info) {
+                    functions.push(info);
+                    this.outputChannel.appendLine(`✅ 收集函数: ${info.name} [${info.startLine}-${info.endLine}] (${node.type})`);
                 } else {
-                    this.outputChannel.appendLine(`⚠️ 跳过匿名函数声明或无效函数名: ${functionName}`);
+                    this.outputChannel.appendLine(`⚠️ 未能为 ${node.type} 解析出有效函数信息，已跳过`);
                 }
+                return;
             }
         });
     }
+
+
+    /**
+     * 提取任意函数
+     */
+    private extractAnyFunction(node: any, language: string): FunctionInfo | null {
+        // 1) 名称
+        const name = this.resolveFunctionName(node) || `anonymous@${node.startPosition.row + 1}`;
+
+        // 2) 参数
+        const paramNode = node.parameters || node.childForFieldName?.('parameters');
+        const parameters = this.extractParameters(paramNode);
+
+        // 3) 行号
+        const startLine = node.startPosition.row + 1;
+        const endLine = node.endPosition.row + 1;
+
+        // 4) 生成 FunctionInfo（统一用 'function'；类方法仍由 processClassDeclaration 产出 'method'）
+        const info: FunctionInfo = {
+            id: `${language}-${name}-${node.startPosition.row}`,
+            name,
+            comment: this.extractComment(node, language),
+            startLine,
+            endLine,
+            parameters,
+            returnType: 'any',
+            visibility: 'public',
+            isStatic: false,
+            language,
+            type: 'function',
+            className: undefined,
+            namespaceName: undefined
+        };
+        return info;
+    }
+
+
+    /**
+     * 解析函数名称
+     */
+    private resolveFunctionName(node: any): string | undefined {
+        // 直接从自身拿（function_declaration）
+        const direct = this.findJavaScriptFunctionName(node);
+        if (direct) return direct;
+
+        // 沿父链推断名称
+        let cur = node.parent;
+        while (cur) {
+            switch (cur.type) {
+                case 'variable_declarator':
+                    // const foo = () => {}
+                    if (cur.children) {
+                        const id = cur.children.find((c: any) => c.type === 'identifier');
+                        if (id?.text) return id.text;
+                    }
+                    break;
+                case 'assignment_expression':
+                    // foo = () => {}  /  obj.foo = () => {}
+                    const left = cur.children?.find((c: any) => c.fieldName === 'left') || cur.children?.[0];
+                    if (left) {
+                        // 标识符
+                        const id = this.findFirstIdentifier(left);
+                        if (id) return id;
+                        // 成员表达式 a.b.c -> 取最后一个属性名
+                        const lastProp = this.findLastPropertyIdentifier(left);
+                        if (lastProp) return lastProp;
+                    }
+                    break;
+                case 'property':
+                    // const o = { bar: () => {}, baz() {} }
+                    const key = cur.children?.find((c: any) =>
+                        c.type === 'property_identifier' || c.type === 'identifier' || c.type === 'string' || c.type === 'number'
+                    );
+                    if (key?.text) return key.text.replace(/^['"]|['"]$/g, '');
+                    break;
+                case 'method_definition':
+                    // class 内的方法由现有逻辑处理；对象字面量 method 也可能走到这里
+                    const m = this.findMethodName(cur);
+                    if (m) return m;
+                    break;
+            }
+            cur = cur.parent;
+        }
+        return undefined;
+    }
+
+    /**
+     * 查找第一个标识符
+     */
+    private findFirstIdentifier(node: any): string | undefined {
+        if (!node) return undefined;
+        if (node.type === 'identifier') return node.text;
+        if (node.children) {
+            for (const ch of node.children) {
+                const r = this.findFirstIdentifier(ch);
+                if (r) return r;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * 查找最后一个属性标识符
+     */
+    private findLastPropertyIdentifier(node: any): string | undefined {
+        // 处理 member_expression 链：a.b.c 取 c
+        if (!node) return undefined;
+        let name: string | undefined;
+        const walk = (n: any) => {
+            if (!n) return;
+            if (n.type === 'property_identifier' || n.type === 'identifier') {
+                name = n.text;
+            }
+            if (n.children) n.children.forEach(walk);
+        };
+        walk(node);
+        return name;
+    }
+
+
+
 
     /**
      * 验证函数名是否有效
