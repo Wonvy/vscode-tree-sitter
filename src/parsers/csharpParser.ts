@@ -73,6 +73,24 @@ export class CSharpParser {
         }
     }
 
+    // 在 CSharpParser 类里新增一个辅助方法
+    private parametersFromLocalFunction(node: any): string[] {
+        try {
+            for (const ch of node.children || []) {
+                if (ch.type === 'parameter_list') {
+                    const text = ch.text || '';
+                    // 去掉括号并按逗号分
+                    return text.replace(/^\(|\)$/g, '').split(',')
+                            .map((s: string) => s.trim())
+                            .filter(Boolean);
+                }
+            }
+        } catch {}
+        return [];
+    }
+
+
+
     /**
      * 处理C#命名空间
      */
@@ -388,7 +406,43 @@ export class CSharpParser {
             } else if (node.type === 'namespace_declaration') {
                 name = this.findNamespaceName(node) || 'anonymous';
                 returnType = 'namespace';
-                type = 'namespace';
+                type = 'namespace';  
+                        
+ 
+            } else if (node.type === 'local_function_statement') {
+                // C# 本地函数：存在于方法体内
+                // 名称：local_function_statement 下通常有 identifier
+                let name = '';
+                for (const ch of node.children || []) {
+                    if (ch.type === 'identifier') {
+                        name = ch.text;
+                        break;
+                    }
+                }
+                if (!name) name = 'local_function';
+
+                const startLine = node.startPosition.row;
+                const endLine = node.endPosition.row;
+
+                // 父级是方法/构造函数，className/namespaceName 依旧可通过向上查找
+                const className = this.findClassName(node);
+                const namespaceName = this.findNamespaceName(node);
+
+                return {
+                    id: `${language}-${name}-${startLine + 1}`,
+                    name,
+                    comment: this.extractComment(node, language),
+                    startLine: startLine + 1,
+                    endLine: endLine + 1,
+                    parameters: this.parametersFromLocalFunction(node),
+                    returnType: 'function',
+                    visibility: 'private', // 本地函数不暴露，标私有即可
+                    isStatic: false,
+                    language,
+                    type: 'function', // 与 types.ts 定义一致
+                    className,
+                    namespaceName
+                };
             } else if (node.type === 'event_declaration') {
                 name = this.findEventName(node) || 'event';
                 returnType = this.findEventType(node) || 'event';

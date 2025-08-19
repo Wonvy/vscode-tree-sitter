@@ -27,6 +27,13 @@ namespace TestNamespace
             {
                 public System.Drawing.Rectangle Rectangle { get; set; }
                 public float Rotation { get; set; }
+                
+                // 轮廓信息结构
+                private class hhh
+                {
+                    public System.Drawing.Rectangle Rectangle { get; set; }
+                    public float Rotation { get; set; }
+                }
             }
 
         }

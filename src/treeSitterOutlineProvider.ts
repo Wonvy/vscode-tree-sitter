@@ -323,214 +323,113 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     }
 
     private convertFunctionsToOutlineItems(functions: FunctionInfo[]): OutlineItem[] {
-        this.outputChannel.appendLine(`🔍 convertFunctionsToOutlineItems: 开始转换 ${functions.length} 个函数信息`);
-        
-        // 按层级分组
-        const topLevelItems = functions.filter(f => !f.className && !f.namespaceName);
-        const nestedItems = functions.filter(f => f.className || f.namespaceName);
-        
-        this.outputChannel.appendLine(`📊 顶级项目: ${topLevelItems.length}, 嵌套项目: ${nestedItems.length}`);
-        
-        // 详细分析顶级项目
-        if (topLevelItems.length > 0) {
-            this.outputChannel.appendLine(`🔍 顶级项目详情:`);
-            topLevelItems.slice(0, 10).forEach((item, index) => {
-                this.outputChannel.appendLine(`  ${index + 1}. ${item.name} (${item.type}) - 行${item.startLine}-${item.endLine}`);
-            });
-            if (topLevelItems.length > 10) {
-                this.outputChannel.appendLine(`  ... 还有 ${topLevelItems.length - 10} 个顶级项目`);
-            }
+        const oc = this.outputChannel;
+
+        // 1) 预清洗 & 去重（按 name+type+startLine+endLine）
+        const uniqMap = new Map<string, FunctionInfo>();
+        for (const f of functions) {
+            const key = `${f.name}|${f.type}|${f.startLine}|${f.endLine}`;
+            if (!uniqMap.has(key)) uniqMap.set(key, f);
         }
-        
-        // 详细分析嵌套项目
-        if (nestedItems.length > 0) {
-            this.outputChannel.appendLine(`🔍 嵌套项目详情:`);
-            nestedItems.slice(0, 10).forEach((item, index) => {
-                this.outputChannel.appendLine(`  ${index + 1}. ${item.name} (${item.type}) - 类:${item.className || '无'} - 命名空间:${item.namespaceName || '无'} - 行${item.startLine}-${item.endLine}`);
-            });
-            if (nestedItems.length > 10) {
-                this.outputChannel.appendLine(`  ... 还有 ${nestedItems.length - 10} 个嵌套项目`);
-            }
-        }
-        
-        // 去重处理：使用Map来避免重复的顶级项目
-        const uniqueTopLevelItems = new Map<string, FunctionInfo>();
-        topLevelItems.forEach(item => {
-            const key = `${item.name}-${item.type}`;
-            if (!uniqueTopLevelItems.has(key)) {
-                uniqueTopLevelItems.set(key, item);
-            } else {
-                this.outputChannel.appendLine(`⚠️ 发现重复的顶级项目: ${item.name} (${item.type}) - 行${item.startLine}-${item.endLine}`);
-            }
+        const items = Array.from(uniqMap.values());
+
+        // 2) 只允许这些类型成为“容器”节点（可拥有子节点）
+        const CONTAINER = new Set(['namespace', 'class', 'method']); 
+        // ↑ 如果你只想让 “namespace / class” 才能容纳子级，把 'method' 去掉；
+        //   如果你要支持“方法内本地函数”，就保留 'method'
+
+        // 3) 排序：按起始行升序，结束行降序（大区间在前，可作为父）
+        items.sort((a, b) => {
+            if (a.startLine !== b.startLine) return a.startLine - b.startLine;
+            return b.endLine - a.endLine;
         });
-        
-        this.outputChannel.appendLine(`📊 去重后顶级项目: ${uniqueTopLevelItems.size}`);
-        
-        // 创建顶级项目
-        const outlineItems = Array.from(uniqueTopLevelItems.values()).map(func => {
-            this.outputChannel.appendLine(`🔍 处理顶级项目: ${func.name} (${func.type}) - 行${func.startLine}-${func.endLine}`);
-            
-            const functionDetails = {
-                name: func.name,
-                type: func.type,
-                startLine: func.startLine,
-                endLine: func.endLine,
-                parameters: func.parameters,
-                returnType: func.returnType,
-                visibility: func.visibility,
-                isStatic: func.isStatic,
-                comment: func.comment,
-                className: func.className,
-                namespaceName: func.namespaceName
+
+        // 4) 构建 OutlineItem 节点缓存
+        const nodeMap = new Map<FunctionInfo, OutlineItem>();
+        const makeNode = (f: FunctionInfo) => {
+            const det = {
+                name: f.name,
+                type: f.type,
+                startLine: f.startLine,
+                endLine: f.endLine,
+                parameters: f.parameters,
+                returnType: f.returnType,
+                visibility: f.visibility,
+                isStatic: f.isStatic,
+                comment: f.comment,
+                className: f.className,
+                namespaceName: f.namespaceName
             };
-            
             const item = new OutlineItem(
-                func.name,
-                func.comment || this.getDefaultDescription(func.type),
-                vscode.TreeItemCollapsibleState.Expanded,
-                func.startLine,
-                func.endLine,
-                func.name,
-                functionDetails
-            );
-            
-            item.iconPath = this.getIconForType(func.type);
-            
-            const children = nestedItems.filter(nested => {
-                // 检查是否是直接子项目
-                if (nested.className === func.name || nested.namespaceName === func.name) {
-                    return true;
-                }
-                
-                // 检查是否是嵌套类的子项目（递归查找）
-                if (nested.className && this.isNestedClassChild(nested.className, func.name, nestedItems)) {
-                    return true;
-                }
-                
-                return false;
-            });
-            
-            this.outputChannel.appendLine(`  🔍 为 ${func.name} 查找子项目，找到 ${children.length} 个`);
-            
-            if (children.length > 0) {
-                item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-                const uniqueChildren = new Map<string, FunctionInfo>();
-                children.forEach(child => {
-                    const childKey = `${child.name}-${child.type}-${child.startLine}`;
-                    if (!uniqueChildren.has(childKey)) {
-                        uniqueChildren.set(childKey, child);
-                    } else {
-                        this.outputChannel.appendLine(`    ⚠️ 发现重复的子项目: ${child.name} (${child.type}) - 行${child.startLine}-${child.endLine}`);
-                    }
-                });
-                
-                this.outputChannel.appendLine(`    📊 去重后子项目: ${uniqueChildren.size}`);
-                
-                uniqueChildren.forEach(child => {
-                    this.outputChannel.appendLine(`    ✅ 添加子项目: ${child.name} (${child.type}) - 行${child.startLine}-${child.endLine}`);
-                    
-                    const childFunctionDetails = {
-                        name: child.name,
-                        type: child.type,
-                        startLine: child.startLine,
-                        endLine: child.endLine,
-                        parameters: child.parameters,
-                        returnType: child.returnType,
-                        visibility: child.visibility,
-                        isStatic: child.isStatic,
-                        comment: child.comment,
-                        className: child.className,
-                        namespaceName: child.namespaceName
-                    };
-                    
-                    const childItem = new OutlineItem(
-                        child.name.split('.').pop() || child.name,
-                        child.comment || this.getDefaultDescription(child.type),
-                        vscode.TreeItemCollapsibleState.None,
-                        child.startLine,
-                        child.endLine,
-                        child.name,
-                        childFunctionDetails
-                    );
-                    
-                    childItem.iconPath = this.getIconForType(child.type);
-                    item.addChild(childItem);
-                });
-            } else {
-                item.collapsibleState = vscode.TreeItemCollapsibleState.None;
-            }
-            
-            return item;
-        });
-        
-        // 添加没有父级的嵌套项目
-        const orphanedNested = nestedItems.filter(nested => 
-            !Array.from(uniqueTopLevelItems.values()).some(top => top.name === nested.className || top.name === nested.namespaceName)
-        );
-        
-        this.outputChannel.appendLine(`📊 孤儿嵌套项目: ${orphanedNested.length}`);
-        
-        if (orphanedNested.length > 0) {
-            this.outputChannel.appendLine(`🔍 孤儿嵌套项目详情:`);
-            orphanedNested.slice(0, 10).forEach((item, index) => {
-                this.outputChannel.appendLine(`  ${index + 1}. ${item.name} (${item.type}) - 类:${item.className || '无'} - 命名空间:${item.namespaceName || '无'} - 行${item.startLine}-${item.endLine}`);
-            });
-            if (orphanedNested.length > 10) {
-                this.outputChannel.appendLine(`  ... 还有 ${orphanedNested.length - 10} 个孤儿嵌套项目`);
-            }
-        }
-        
-        const uniqueOrphanedNested = new Map<string, FunctionInfo>();
-        orphanedNested.forEach(func => {
-            const key = `${func.name}-${func.type}-${func.startLine}`;
-            if (!uniqueOrphanedNested.has(key)) {
-                uniqueOrphanedNested.set(key, func);
-            } else {
-                this.outputChannel.appendLine(`⚠️ 发现重复的孤儿嵌套项目: ${func.name} (${func.type}) - 行${func.startLine}-${func.endLine}`);
-            }
-        });
-        
-        this.outputChannel.appendLine(`📊 去重后孤儿嵌套项目: ${uniqueOrphanedNested.size}`);
-        
-        uniqueOrphanedNested.forEach(func => {
-            this.outputChannel.appendLine(`🔍 处理孤儿嵌套项目: ${func.name} (${func.type}), 类名: ${func.className} - 行${func.startLine}-${func.endLine}`);
-            
-            const orphanFunctionDetails = {
-                name: func.name,
-                type: func.type,
-                startLine: func.startLine,
-                endLine: func.endLine,
-                parameters: func.parameters,
-                returnType: func.returnType,
-                visibility: func.visibility,
-                isStatic: func.isStatic,
-                comment: func.comment,
-                className: func.className,
-                namespaceName: func.namespaceName
-            };
-            
-            const item = new OutlineItem(
-                func.name,
-                func.comment || this.getDefaultDescription(func.type),
+                f.type === 'class' || f.type === 'namespace' ? f.name : (f.name.split('.').pop() || f.name),
+                f.comment || this.getDefaultDescription(f.type),
                 vscode.TreeItemCollapsibleState.None,
-                func.startLine,
-                func.endLine,
-                func.name,
-                orphanFunctionDetails
+                f.startLine,
+                f.endLine,
+                f.name,
+                det
             );
-            
-            item.iconPath = this.getIconForType(func.type);
-            outlineItems.push(item);
-        });
-        
-        this.outputChannel.appendLine(`✅ convertFunctionsToOutlineItems: 转换完成，返回 ${outlineItems.length} 个大纲项`);
-        this.outputChannel.appendLine(`📊 最终统计:`);
-        this.outputChannel.appendLine(`  - 顶级项目: ${topLevelItems.length} -> ${uniqueTopLevelItems.size}`);
-        this.outputChannel.appendLine(`  - 嵌套项目: ${nestedItems.length}`);
-        this.outputChannel.appendLine(`  - 孤儿嵌套项目: ${orphanedNested.length} -> ${uniqueOrphanedNested.size}`);
-        this.outputChannel.appendLine(`  - 总大纲项: ${outlineItems.length}`);
-        
-        return outlineItems;
+            item.iconPath = this.getIconForType(f.type);
+            return item;
+        };
+
+        // 5) 栈式扫描：最近合法父节点挂载策略（只挂一次）
+        const stack: FunctionInfo[] = [];
+        const roots: OutlineItem[] = [];
+
+        const contains = (parent: FunctionInfo, child: FunctionInfo) =>
+            parent.startLine <= child.startLine && parent.endLine >= child.endLine;
+
+        const canContain = (parent: FunctionInfo, child: FunctionInfo) => {
+            // 类型约束，禁止“函数成为命名空间的父”等奇怪结构
+            if (!CONTAINER.has(parent.type)) return false;
+
+            // C# 常识：namespace 可含 namespace/class；class 可含 class/method/event/constructor 等；
+            // method 可含 function（本地函数）
+            if (parent.type === 'namespace') {
+                return child.type === 'namespace' || child.type === 'class' || child.type === 'method' || child.type === 'event' || child.type === 'constructor';
+            }
+            if (parent.type === 'class') {
+                return child.type === 'class' || child.type === 'method' || child.type === 'constructor' || child.type === 'event' || child.type === 'function';
+            }
+            if (parent.type === 'method') {
+                return child.type === 'function'; // 本地函数
+            }
+            return false;
+        };
+
+        for (const f of items) {
+            // 收缩栈至能包含当前节点的最近祖先
+            while (stack.length && !contains(stack[stack.length - 1], f)) {
+                stack.pop();
+            }
+
+            const node = makeNode(f);
+            nodeMap.set(f, node);
+
+            const parent = stack[stack.length - 1];
+            if (parent && canContain(parent, f)) {
+                nodeMap.get(parent)!.addChild(node);
+            } else {
+                // 没有合法父节点 => 顶级
+                roots.push(node);
+            }
+
+            // 只有容器才入栈
+            if (CONTAINER.has(f.type)) {
+                stack.push(f);
+            }
+        }
+
+        // 6) 展开有子节点的容器
+        const expandIfHasChildren = (n: OutlineItem) => {
+            if (n.children && n.children.length) n.setExpanded();
+            n.children.forEach(expandIfHasChildren);
+        };
+        roots.forEach(expandIfHasChildren);
+
+        oc.appendLine(`✅ 构建完成：roots=${roots.length}, total=${items.length}`);
+        return roots;
     }
 
     private getDefaultDescription(type: string): string {
