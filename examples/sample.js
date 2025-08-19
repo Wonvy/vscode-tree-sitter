@@ -11,9 +11,7 @@ class XmlColorDecorator {
         this.init();
     }
 
-    /**
-     * PANOSE字体分类解码函数
-     */
+
     decodePanose(hex) {
         try {
             if (!/^[0-9a-fA-F]{20}$/.test(hex)) {
@@ -1651,7 +1649,7 @@ function getLoadedRelsFiles() {
     }
 }
 
-// 全局函数：调试路径解析问题
+
 function debugPathParsing(filePath) {
     console.log('🔍 === 调试路径解析 ===');
     console.log('输入文件路径:', filePath);

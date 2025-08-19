@@ -57,7 +57,13 @@
           "icon": "icon-32.png"
         }
       ]
-    }
+    },
+    "outputChannels": [
+      {
+        "id": "tree-sitter-outline",
+        "name": "Tree-sitter Outline"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

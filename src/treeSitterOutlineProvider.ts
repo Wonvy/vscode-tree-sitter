@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Parser, Language as TreeSitterLanguage } from 'web-tree-sitter';
 import { OutlineItem } from './outlineItem';
 import { FunctionInfo, Language } from './types';
+import { getConfig } from './config';
 import * as path from 'path';
 
 export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<OutlineItem> {
@@ -15,87 +16,68 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     private csLanguage: TreeSitterLanguage | null = null;
     private pyLanguage: TreeSitterLanguage | null = null;
     private extensionUri: vscode.Uri;
+    private outputChannel: vscode.OutputChannel;
+    
+    // 新增：存储当前文档的函数信息，用于反向查找
+    private currentFunctions: FunctionInfo[] = [];
+    private currentOutlineItems: OutlineItem[] = [];
+    private cursorChangeListener: vscode.Disposable | null = null;
 
-    constructor(extensionUri: vscode.Uri) {
+    constructor(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
         this.extensionUri = extensionUri;
+        this.outputChannel = outputChannel;
         this.initializeTreeSitter();
+        this.setupCursorChangeListener();
     }
 
     private async initializeTreeSitter(): Promise<void> {
         if (this.isInitialized) return;
 
         try {
-            console.log('🚀 开始初始化 Tree-Sitter...');
+            this.outputChannel.appendLine('🚀 开始初始化 Tree-Sitter...');
             await Parser.init();
-            console.log('✅ Parser 初始化成功');
+            this.outputChannel.appendLine('✅ Parser 初始化成功');
 
             // 加载JavaScript语法
-            console.log('📥 正在加载 JavaScript 语法文件...');
+            this.outputChannel.appendLine('📥 正在加载 JavaScript 语法文件...');
             const jsWasmPath = vscode.Uri.file(path.join(this.extensionUri.fsPath, 'public', 'tree-sitter-javascript.wasm'));
             try {
                 const jsWasmBuffer = await vscode.workspace.fs.readFile(jsWasmPath);
+                this.outputChannel.appendLine(`📊 JavaScript WASM 文件大小: ${jsWasmBuffer.length} 字节`);
                 this.jsLanguage = await TreeSitterLanguage.load(jsWasmBuffer);
-                console.log('✅ JavaScript 语法加载成功');
+                this.outputChannel.appendLine('✅ JavaScript 语法加载成功');
             } catch (error) {
-                console.warn('⚠️ JavaScript 语法文件加载失败，尝试从unpkg下载...');
-                try {
-                    const jsResponseFallback = await fetch('https://unpkg.com/tree-sitter-javascript@0.23.1/tree-sitter-javascript.wasm');
-                    if (jsResponseFallback.ok) {
-                        const jsWasmBuffer = await jsResponseFallback.arrayBuffer();
-                        this.jsLanguage = await TreeSitterLanguage.load(new Uint8Array(jsWasmBuffer));
-                        console.log('✅ JavaScript 语法从unpkg加载成功');
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ JavaScript 语法加载完全失败:', fallbackError);
-                }
+                this.outputChannel.appendLine(`❌ JavaScript 语法文件加载失败: ${error}`);
             }
 
             // 加载C#语法
-            console.log('📥 正在加载 C# 语法文件...');
+            this.outputChannel.appendLine('📥 正在加载 C# 语法文件...');
             const csWasmPath = vscode.Uri.file(path.join(this.extensionUri.fsPath, 'public', 'tree-sitter-c-sharp.wasm'));
             try {
                 const csWasmBuffer = await vscode.workspace.fs.readFile(csWasmPath);
+                this.outputChannel.appendLine(`📊 C# WASM 文件大小: ${csWasmBuffer.length} 字节`);
                 this.csLanguage = await TreeSitterLanguage.load(csWasmBuffer);
-                console.log('✅ C# 语法加载成功');
+                this.outputChannel.appendLine('✅ C# 语法加载成功');
             } catch (error) {
-                console.warn('⚠️ C# 语法文件加载失败，尝试从unpkg下载...');
-                try {
-                    const csResponseFallback = await fetch('https://unpkg.com/tree-sitter-c-sharp@0.23.1/tree-sitter-c-sharp.wasm');
-                    if (csResponseFallback.ok) {
-                        const csWasmBuffer = await csResponseFallback.arrayBuffer();
-                        this.csLanguage = await TreeSitterLanguage.load(new Uint8Array(csWasmBuffer));
-                        console.log('✅ C# 语法从unpkg加载成功');
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ C# 语法加载完全失败:', fallbackError);
-                }
+                this.outputChannel.appendLine(`❌ C# 语法文件加载失败: ${error}`);
             }
 
             // 加载Python语法
-            console.log('📥 正在加载 Python 语法文件...');
+            this.outputChannel.appendLine('📥 正在加载 Python 语法文件...');
             const pyWasmPath = vscode.Uri.file(path.join(this.extensionUri.fsPath, 'public', 'tree-sitter-python.wasm'));
             try {
                 const pyWasmBuffer = await vscode.workspace.fs.readFile(pyWasmPath);
+                this.outputChannel.appendLine(`📊 Python WASM 文件大小: ${pyWasmBuffer.length} 字节`);
                 this.pyLanguage = await TreeSitterLanguage.load(pyWasmBuffer);
-                console.log('✅ Python 语法加载成功');
+                this.outputChannel.appendLine('✅ Python 语法加载成功');
             } catch (error) {
-                console.warn('⚠️ Python 语法文件加载失败，尝试从unpkg下载...');
-                try {
-                    const pyResponseFallback = await fetch('https://unpkg.com/tree-sitter-python@0.23.1/tree-sitter-python.wasm');
-                    if (pyResponseFallback.ok) {
-                        const pyWasmBuffer = await pyResponseFallback.arrayBuffer();
-                        this.pyLanguage = await TreeSitterLanguage.load(new Uint8Array(pyWasmBuffer));
-                        console.log('✅ Python 语法从unpkg加载成功');
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ Python 语法加载完全失败:', fallbackError);
-                }
+                this.outputChannel.appendLine(`❌ Python 语法文件加载失败: ${error}`);
             }
 
             this.isInitialized = true;
-            console.log('🎉 Tree-Sitter 初始化完成!');
+            this.outputChannel.appendLine('🎉 Tree-Sitter 初始化完成!');
         } catch (err) {
-            console.error('❌ Tree-Sitter 初始化失败:', err);
+            this.outputChannel.appendLine(`❌ Tree-Sitter 初始化失败: ${err}`);
         }
     }
 
@@ -108,29 +90,96 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     }
 
     getChildren(element?: OutlineItem): Thenable<OutlineItem[]> {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🔍 getChildren 被调用，元素: ${element ? element.label : 'root'}`);
+        
         if (element) {
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 返回子元素: ${element.children?.length || 0} 个`);
             return Promise.resolve(element.children || []);
         }
 
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            return Promise.resolve([]);
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 没有活动编辑器，尝试获取最后活动的编辑器...`);
+            
+            // 尝试获取最后活动的编辑器，即使失去焦点也能显示大纲
+            const lastActiveEditor = this.getLastActiveEditor();
+            if (lastActiveEditor) {
+                this.outputChannel.appendLine(`[${timestamp}] ✅ 找到最后活动的编辑器: ${lastActiveEditor.document.fileName}`);
+                return this.processDocument(lastActiveEditor.document, timestamp);
+            } else {
+                this.outputChannel.appendLine(`[${timestamp}] ❌ 无法找到任何编辑器`);
+                return Promise.resolve([]);
+            }
         }
 
-        const document = editor.document;
+        return this.processDocument(editor.document, timestamp);
+    }
+
+    // 新增：获取最后活动的编辑器
+    private getLastActiveEditor(): vscode.TextEditor | undefined {
+        // 首先尝试获取当前活动编辑器
+        if (vscode.window.activeTextEditor) {
+            return vscode.window.activeTextEditor;
+        }
+        
+        // 如果没有活动编辑器，尝试从可见的编辑器中获取
+        const visibleEditors = vscode.window.visibleTextEditors;
+        if (visibleEditors.length > 0) {
+            // 返回第一个可见编辑器
+            return visibleEditors[0];
+        }
+        
+        // 如果都没有，尝试从工作区文档中获取
+        const documents = vscode.workspace.textDocuments;
+        if (documents.length > 0) {
+            // 创建一个虚拟的编辑器对象
+            const document = documents[0];
+            return {
+                document,
+                selection: new vscode.Selection(0, 0, 0, 0),
+                selections: [new vscode.Selection(0, 0, 0, 0)],
+                visibleRanges: [new vscode.Range(0, 0, 0, 0)],
+                options: {},
+                viewColumn: vscode.ViewColumn.One,
+                edit: () => Promise.resolve(true),
+                insertSnippet: () => Promise.resolve(true),
+                setDecorations: () => {},
+                revealRange: () => {},
+                show: () => {},
+                hide: () => {}
+            } as unknown as vscode.TextEditor;
+        }
+        
+        return undefined;
+    }
+
+    // 新增：处理文档的通用方法
+    private processDocument(document: vscode.TextDocument, timestamp: string): Thenable<OutlineItem[]> {
         const language = document.languageId;
+        this.outputChannel.appendLine(`[${timestamp}] 🔍 处理文档，语言: ${language}, 文件: ${document.fileName}`);
 
         // 检查语言是否支持
         if (!this.isLanguageSupported(language)) {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 不支持的语言: ${language}`);
             return Promise.resolve([]);
         }
 
+        // 检查是否已初始化
+        if (!this.isInitialized) {
+            this.outputChannel.appendLine(`[${timestamp}] ⏳ Tree-Sitter 正在初始化中，稍后再试...`);
+            return Promise.resolve([]);
+        }
+
+        this.outputChannel.appendLine(`[${timestamp}] ✅ 开始解析文档: ${document.fileName}`);
+
         // 如果语言改变，重新设置解析器
         if (this.currentLanguage !== language) {
+            this.outputChannel.appendLine(`[${timestamp}] 🔄 语言从 ${this.currentLanguage} 变为 ${language}`);
             this.setLanguage(language);
         }
 
-        return this.parseDocument(document);
+        return this.parseDocument(document, timestamp);
     }
 
     private isLanguageSupported(language: string): boolean {
@@ -138,8 +187,20 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     }
 
     private setLanguage(language: string): void {
+        // 只有在初始化完成后才创建 Parser
+        if (!this.isInitialized) {
+            console.log('⚠️ Tree-Sitter 尚未初始化完成，跳过语言设置');
+            return;
+        }
+
         if (!this.parser) {
-            this.parser = new Parser();
+            try {
+                this.parser = new Parser();
+                console.log('✅ 创建新的 Parser 实例');
+            } catch (error) {
+                console.error('❌ 创建 Parser 实例失败:', error);
+                return;
+            }
         }
 
         this.currentLanguage = language;
@@ -148,70 +209,93 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             case 'python':
                 if (this.pyLanguage) {
                     this.parser.setLanguage(this.pyLanguage);
+                    console.log('✅ 设置 Python 语言');
                 }
                 break;
             case 'javascript':
             case 'typescript':
                 if (this.jsLanguage) {
                     this.parser.setLanguage(this.jsLanguage);
+                    console.log('✅ 设置 JavaScript/TypeScript 语言');
                 }
                 break;
             case 'csharp':
                 if (this.csLanguage) {
                     this.parser.setLanguage(this.csLanguage);
+                    console.log('✅ 设置 C# 语言');
                 }
                 break;
         }
     }
 
-    private async parseDocument(document: vscode.TextDocument): Promise<OutlineItem[]> {
-        if (!this.parser || !this.isInitialized) {
-            console.log('❌ 解析器未初始化或未就绪');
+    private async parseDocument(document: vscode.TextDocument, timestamp: string): Promise<OutlineItem[]> {
+        if (!this.isInitialized) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ Tree-Sitter 尚未初始化完成，无法解析文档`);
             return [];
         }
 
+        if (!this.parser) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ Parser 实例未创建，尝试设置语言...`);
+            this.setLanguage(document.languageId);
+            
+            if (!this.parser) {
+                this.outputChannel.appendLine(`[${timestamp}] ❌ 仍然无法创建 Parser 实例`);
+                return [];
+            }
+        }
+
         try {
-            console.log(`🔍 开始解析文档: ${document.fileName}`);
-            console.log(`📝 语言: ${this.currentLanguage}`);
-            console.log(`🔧 解析器状态: ${this.parser ? '已创建' : '未创建'}`);
+            this.outputChannel.appendLine(`[${timestamp}] 🔍 开始解析文档: ${document.fileName}`);
+            this.outputChannel.appendLine(`[${timestamp}] 📝 语言: ${this.currentLanguage}`);
+            this.outputChannel.appendLine(`[${timestamp}] 🔧 解析器状态: ${this.parser ? '已创建' : '未创建'}`);
             
             const sourceCode = document.getText();
-            console.log(`📄 源代码长度: ${sourceCode.length} 字符`);
+            this.outputChannel.appendLine(`[${timestamp}] 📄 源代码长度: ${sourceCode.length} 字符`);
             
             const tree = this.parser.parse(sourceCode);
-            console.log(`🌳 解析树: ${tree ? '成功' : '失败'}`);
+            this.outputChannel.appendLine(`[${timestamp}] 🌳 解析树: ${tree ? '成功' : '失败'}`);
             
             if (!tree || !tree.rootNode) {
-                console.log('❌ 解析树为空或根节点缺失');
+                this.outputChannel.appendLine(`[${timestamp}] ❌ 解析树为空或根节点缺失`);
                 return [];
             }
 
             const rootNode = tree.rootNode;
-            console.log(`🌱 根节点类型: ${rootNode.type}`);
-            console.log(`👶 子节点数量: ${rootNode.children ? rootNode.children.length : 0}`);
+            this.outputChannel.appendLine(`[${timestamp}] 🌱 根节点类型: ${rootNode.type}`);
+            this.outputChannel.appendLine(`[${timestamp}] 👶 子节点数量: ${rootNode.children ? rootNode.children.length : 0}`);
             
             // 遍历前几个节点，看看实际的结构
             if (rootNode.children) {
-                console.log('🔍 前5个根节点类型:');
+                this.outputChannel.appendLine(`[${timestamp}] 🔍 前5个根节点类型:`);
                 rootNode.children.slice(0, 5).forEach((child: any, index: number) => {
-                    console.log(`  ${index}: ${child.type} - "${child.text?.substring(0, 50)}..."`);
+                    this.outputChannel.appendLine(`[${timestamp}]   ${index}: ${child.type} - "${child.text?.substring(0, 50)}..."`);
                 });
             }
             
             const functions = this.extractFunctionInfoFromTree(rootNode, this.currentLanguage);
-            console.log(`📊 提取的函数数量: ${functions.length}`);
+            this.outputChannel.appendLine(`[${timestamp}] 📊 提取的函数数量: ${functions.length}`);
+            
+            // 保存当前文档的函数信息，用于反向查找
+            this.currentFunctions = functions;
             
             if (functions.length === 0) {
-                console.log('⚠️ 没有找到任何函数，开始详细诊断...');
-                this.diagnoseTreeStructure(rootNode, this.currentLanguage);
+                this.outputChannel.appendLine(`[${timestamp}] ⚠️ 没有找到任何函数，开始详细诊断...`);
+                this.diagnoseTreeStructure(rootNode, this.currentLanguage, timestamp);
             }
             
             const outlineItems = this.convertFunctionsToOutlineItems(functions);
-            console.log(`🎯 生成的轮廓项数量: ${outlineItems.length}`);
+            this.outputChannel.appendLine(`[${timestamp}] 🎯 生成的轮廓项数量: ${outlineItems.length}`);
+            
+            // 保存当前文档的大纲项，用于反向查找
+            this.currentOutlineItems = outlineItems;
+            
+            // 添加加载完成的时间戳
+            const loadTimestamp = new Date().toLocaleTimeString();
+            this.outputChannel.appendLine(`[${loadTimestamp}] ✅ 函数大纲加载完成！共 ${outlineItems.length} 个项目`);
             
             return outlineItems;
         } catch (error) {
-            console.error('❌ 解析文档时出错:', error);
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 解析文档时出错: ${error}`);
             return [];
         }
     }
@@ -240,25 +324,86 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     private extractJavaScriptHierarchy(rootNode: any, functions: FunctionInfo[], language: string): void {
         if (!rootNode.children) return;
 
-        console.log('🔍 开始解析JavaScript层级结构...');
+        this.outputChannel.appendLine('🔍 开始解析JavaScript层级结构...');
+        this.outputChannel.appendLine(`🔍 根节点类型: ${rootNode.type}`);
+        this.outputChannel.appendLine(`🔍 根节点子节点数量: ${rootNode.children.length}`);
         
         // 遍历所有节点，找到类声明和方法
         this.traverseTree(rootNode, (node) => {
+            this.outputChannel.appendLine(`🔍 检查节点: ${node.type}, 文本: "${node.text?.substring(0, 100)}..."`);
+            
             if (node.type === 'class_declaration') {
+                this.outputChannel.appendLine(`✅ 发现类声明节点`);
                 // 处理类声明
                 this.processClassDeclaration(node, functions, language);
             } else if (node.type === 'function_declaration') {
-                // 处理顶级函数声明
-                this.processTopLevelFunction(node, functions, language);
+                // 只处理顶级函数声明，确保有函数名
+                const functionName = this.findJavaScriptFunctionName(node);
+                if (functionName && functionName !== 'anonymous' && this.isValidFunctionName(functionName)) {
+                    this.outputChannel.appendLine(`✅ 发现顶级函数声明节点: ${functionName}`);
+                    // 处理顶级函数声明
+                    this.processTopLevelFunction(node, functions, language);
+                } else {
+                    this.outputChannel.appendLine(`⚠️ 跳过匿名函数声明或无效函数名: ${functionName}`);
+                }
             }
+            // 注释掉箭头函数的处理，因为它们通常不是顶级函数
+            // else if (node.type === 'arrow_function') {
+            //     // 箭头函数通常作为变量赋值或函数参数的一部分，不应该单独显示
+            //     this.outputChannel.appendLine(`⚠️ 跳过箭头函数，因为它不是顶级函数`);
+            // }
         });
+    }
+
+    // 新增方法：验证函数名是否有效
+    private isValidFunctionName(name: string): boolean {
+        if (!name || name.length <= 1) return false;
+        
+        // 检查是否是常见的循环变量名或参数名
+        const invalidNames = [
+            'key', 'value', 'item', 'element', 'part', 'path', 'file', 'data',
+            'i', 'j', 'k', 'h', 'v', 'x', 'y', 'z', 'n', 'm', 'p', 'q',
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'r', 's', 't', 'u', 'w'
+        ];
+        if (invalidNames.includes(name.toLowerCase())) return false;
+        
+        // 检查是否符合JavaScript标识符规则
+        return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+    }
+
+    // 新增方法：检查是否是顶级箭头函数
+    private isTopLevelArrowFunction(node: any): boolean {
+        if (!node.parent) return false;
+        
+        // 检查父节点类型，确保不是作为参数或变量的一部分
+        const parentType = node.parent.type;
+        const invalidParentTypes = [
+            'call_expression',      // 函数调用
+            'assignment_expression', // 赋值表达式
+            'variable_declarator',   // 变量声明
+            'property',              // 对象属性
+            'array_element',         // 数组元素
+            'argument_list'          // 参数列表
+        ];
+        
+        if (invalidParentTypes.includes(parentType)) {
+            return false;
+        }
+        
+        return true;
     }
 
     private processClassDeclaration(classNode: any, functions: FunctionInfo[], language: string): void {
         const className = this.findClassName(classNode);
-        if (!className) return;
+        if (!className) {
+            this.outputChannel.appendLine(`❌ 无法找到类名，跳过此类声明`);
+            return;
+        }
 
-        console.log(`🔍 处理类声明: ${className}`);
+        this.outputChannel.appendLine(`🔍 处理类声明: ${className}`);
+        this.outputChannel.appendLine(`🔍 类节点类型: ${classNode.type}`);
+        this.outputChannel.appendLine(`🔍 类节点子节点数量: ${classNode.children ? classNode.children.length : 0}`);
+        this.outputChannel.appendLine(`🔍 类节点文本: "${classNode.text?.substring(0, 200)}..."`);
 
         // 创建类节点
         const classInfo: FunctionInfo = {
@@ -278,21 +423,49 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         };
 
         functions.push(classInfo);
+        this.outputChannel.appendLine(`✅ 添加类到函数列表: ${className}`);
 
-        // 查找类中的方法
-        if (classNode.children) {
-            classNode.children.forEach((child: any) => {
-                if (this.isClassMethod(child)) {
-                    const methodInfo = this.extractClassMethod(child, language, className);
-                    if (methodInfo) {
-                        console.log(`✅ 提取类方法: ${methodInfo.name}`);
-                        // 设置className，这样在convertFunctionsToOutlineItems中就能正确建立父子关系
-                        methodInfo.className = className;
-                        functions.push(methodInfo);
-                    }
+        // 查找类中的方法 - 递归遍历所有子节点
+        let methodCount = 0;
+        this.traverseClassMethods(classNode, (methodNode) => {
+            if (this.isClassMethod(methodNode)) {
+                this.outputChannel.appendLine(`  ✅ 识别为类方法: ${methodNode.type}`);
+                const methodInfo = this.extractClassMethod(methodNode, language, className);
+                if (methodInfo) {
+                    this.outputChannel.appendLine(`✅ 提取类方法: ${methodInfo.name}`);
+                    // 设置className，这样在convertFunctionsToOutlineItems中就能正确建立父子关系
+                    methodInfo.className = className;
+                    functions.push(methodInfo);
+                    methodCount++;
+                } else {
+                    this.outputChannel.appendLine(`❌ 提取类方法失败: ${methodNode.type}`);
                 }
-            });
-        }
+            } else {
+                this.outputChannel.appendLine(`  ❌ 不是类方法: ${methodNode.type}`);
+            }
+        });
+        
+        this.outputChannel.appendLine(`📊 类 ${className} 处理完成，找到 ${methodCount} 个方法`);
+    }
+
+    // 新增方法：递归遍历类中的所有方法
+    private traverseClassMethods(classNode: any, callback: (methodNode: any) => void): void {
+        if (!classNode.children) return;
+        
+        classNode.children.forEach((child: any) => {
+            // 如果是class_body，继续遍历其子节点
+            if (child.type === 'class_body') {
+                this.traverseClassMethods(child, callback);
+            }
+            // 如果是方法定义，直接调用回调
+            else if (this.isClassMethod(child)) {
+                callback(child);
+            }
+            // 其他情况，递归遍历
+            else if (child.children) {
+                this.traverseClassMethods(child, callback);
+            }
+        });
     }
 
     private processTopLevelFunction(functionNode: any, functions: FunctionInfo[], language: string): void {
@@ -320,39 +493,102 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         functions.push(functionInfo);
     }
 
+    private processTopLevelArrowFunction(arrowFunctionNode: any, functions: FunctionInfo[], language: string): void {
+        const functionName = this.findArrowFunctionName(arrowFunctionNode);
+        if (!functionName) return;
+
+        console.log(`🔍 处理顶级箭头函数: ${functionName}`);
+
+        const functionInfo: FunctionInfo = {
+            id: `${language}-${functionName}-${arrowFunctionNode.startPosition.row}`,
+            name: functionName,
+            comment: this.extractComment(arrowFunctionNode, language),
+            startLine: arrowFunctionNode.startPosition.row + 1,
+            endLine: arrowFunctionNode.endPosition.row + 1,
+            parameters: this.extractParameters(arrowFunctionNode.parameters),
+            returnType: 'any',
+            visibility: 'public',
+            isStatic: false,
+            language,
+            type: 'function',
+            className: undefined,
+            namespaceName: undefined
+        };
+
+        functions.push(functionInfo);
+    }
+
     private isClassMethod(node: any): boolean {
-        return node.type === 'method_definition' ||
+        const isMethod = node.type === 'method_definition' ||
                node.type === 'constructor_declaration' ||
                node.type === 'getter' ||
-               node.type === 'setter';
+               node.type === 'setter' ||
+               node.type === 'function_declaration' ||  // 类内的函数声明
+               node.type === 'arrow_function';          // 类内的箭头函数
+        
+        this.outputChannel.appendLine(`🔍 检查是否为类方法: ${node.type} -> ${isMethod ? '是' : '否'}`);
+        if (isMethod) {
+            this.outputChannel.appendLine(`  ✅ 节点文本: "${node.text?.substring(0, 100)}..."`);
+        }
+        
+        return isMethod;
     }
 
     private extractClassMethod(methodNode: any, language: string, className: string): FunctionInfo | null {
         try {
+            this.outputChannel.appendLine(`🔍 开始提取类方法，节点类型: ${methodNode.type}`);
+            this.outputChannel.appendLine(`🔍 方法节点文本: "${methodNode.text?.substring(0, 100)}..."`);
+            
             let name = '';
             let type: 'function' | 'method' | 'constructor' | 'class' | 'namespace' | 'property' | 'field' | 'event' = 'method';
             let parameters: string[] = [];
             let isStatic = false;
 
             if (methodNode.type === 'method_definition') {
+                this.outputChannel.appendLine(`  🔍 处理method_definition类型`);
                 name = this.findMethodName(methodNode) || 'anonymous';
                 type = 'method';
                 parameters = this.extractParameters(methodNode.parameters);
                 isStatic = methodNode.static || false;
+                this.outputChannel.appendLine(`  ✅ 方法名: ${name}, 参数: ${parameters.join(', ')}, 静态: ${isStatic}`);
             } else if (methodNode.type === 'constructor_declaration') {
+                this.outputChannel.appendLine(`  🔍 处理constructor_declaration类型`);
                 name = 'constructor';
                 type = 'constructor';
                 parameters = this.extractParameters(methodNode.parameters);
+                this.outputChannel.appendLine(`  ✅ 构造函数, 参数: ${parameters.join(', ')}`);
             } else if (methodNode.type === 'getter') {
+                this.outputChannel.appendLine(`  🔍 处理getter类型`);
                 name = this.findGetterName(methodNode) || 'getter';
                 type = 'property';
+                this.outputChannel.appendLine(`  ✅ getter名称: ${name}`);
             } else if (methodNode.type === 'setter') {
+                this.outputChannel.appendLine(`  🔍 处理setter类型`);
                 name = this.findSetterName(methodNode) || 'setter';
                 type = 'property';
+                this.outputChannel.appendLine(`  ✅ setter名称: ${name}`);
+            } else if (methodNode.type === 'function_declaration') {
+                this.outputChannel.appendLine(`  🔍 处理类内function_declaration类型`);
+                // 处理类内的函数声明
+                name = this.findJavaScriptFunctionName(methodNode) || 'anonymous';
+                type = 'method';
+                parameters = this.extractParameters(methodNode.parameters);
+                this.outputChannel.appendLine(`  ✅ 函数声明名称: ${name}, 参数: ${parameters.join(', ')}`);
+            } else if (methodNode.type === 'arrow_function') {
+                this.outputChannel.appendLine(`  🔍 处理类内arrow_function类型`);
+                // 处理类内的箭头函数
+                name = this.findArrowFunctionName(methodNode) || 'arrow_function';
+                type = 'method';
+                parameters = this.extractParameters(methodNode.parameters);
+                this.outputChannel.appendLine(`  ✅ 箭头函数名称: ${name}, 参数: ${parameters.join(', ')}`);
             }
 
-            if (!name || name === 'anonymous') return null;
+            if (!name || name === 'anonymous') {
+                this.outputChannel.appendLine(`❌ 无法提取方法名，跳过此方法`);
+                return null;
+            }
 
+            this.outputChannel.appendLine(`✅ 成功提取类方法: ${name} (${type})`);
             return {
                 id: `${language}-${className}-${name}-${methodNode.startPosition.row}`,
                 name: name, // 只保存方法名，不包含类名
@@ -369,7 +605,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 namespaceName: undefined
             };
         } catch (err) {
-            console.warn('提取类方法失败:', err);
+            this.outputChannel.appendLine(`❌ 提取类方法失败: ${err}`);
             return null;
         }
     }
@@ -396,6 +632,17 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         return undefined;
     }
 
+    private findArrowFunctionName(arrowFunctionNode: any): string | undefined {
+        if (!arrowFunctionNode || !arrowFunctionNode.children) return undefined;
+        
+        for (const child of arrowFunctionNode.children) {
+            if (child.type === 'identifier') {
+                return child.text;
+            }
+        }
+        return undefined;
+    }
+
     private traverseTree(node: any, callback: (node: any) => void): void {
         callback(node);
         
@@ -408,6 +655,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
 
     private isFunctionDeclaration(node: any, language: string): boolean {
         if (language === 'javascript' || language === 'typescript') {
+            // 只识别真正的函数声明和定义
             return node.type === 'function_declaration' || 
                    node.type === 'method_definition' ||
                    node.type === 'arrow_function' ||
@@ -604,7 +852,11 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         
         for (const child of functionNode.children) {
             if (child.type === 'identifier') {
-                return child.text;
+                const functionName = child.text;
+                // 验证函数名是否有效（不是单个字符的变量名等）
+                if (functionName && functionName.length > 1 && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(functionName)) {
+                    return functionName;
+                }
             }
             if (child.children) {
                 const foundName = this.findJavaScriptFunctionName(child);
@@ -616,44 +868,77 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     }
 
     private findMethodName(methodNode: any): string | undefined {
-        if (!methodNode || !methodNode.children) return undefined;
+        if (!methodNode || !methodNode.children) {
+            this.outputChannel.appendLine(`  ❌ findMethodName: 方法节点或子节点为空`);
+            return undefined;
+        }
+        
+        this.outputChannel.appendLine(`  🔍 findMethodName: 开始查找方法名，子节点数量: ${methodNode.children.length}`);
         
         for (const child of methodNode.children) {
+            this.outputChannel.appendLine(`    🔍 检查子节点: ${child.type}, 文本: "${child.text?.substring(0, 50)}..."`);
+            
             if (child.type === 'identifier') {
+                this.outputChannel.appendLine(`    ✅ 找到标识符: ${child.text}`);
+                return child.text;
+            }
+            if (child.type === 'property_identifier') {
+                this.outputChannel.appendLine(`    ✅ 找到属性标识符: ${child.text}`);
                 return child.text;
             }
             if (child.children) {
+                this.outputChannel.appendLine(`    🔍 递归查找子节点`);
                 const foundName = this.findMethodName(child);
-                if (foundName) return foundName;
+                if (foundName) {
+                    this.outputChannel.appendLine(`    ✅ 递归找到方法名: ${foundName}`);
+                    return foundName;
+                }
             }
         }
         
+        this.outputChannel.appendLine(`  ❌ findMethodName: 未找到方法名`);
         return undefined;
     }
 
     private findClassName(methodNode: any): string | undefined {
-        if (!methodNode) return undefined;
+        if (!methodNode) {
+            this.outputChannel.appendLine(`  ❌ findClassName: 方法节点为空`);
+            return undefined;
+        }
+        
+        this.outputChannel.appendLine(`  🔍 findClassName: 开始查找类名，节点类型: ${methodNode.type}`);
         
         if (methodNode.type === 'class_declaration') {
+            this.outputChannel.appendLine(`  🔍 当前节点就是类声明，查找标识符`);
             for (const child of methodNode.children) {
+                this.outputChannel.appendLine(`    🔍 检查子节点: ${child.type}, 文本: "${child.text?.substring(0, 50)}..."`);
                 if (child.type === 'identifier') {
+                    this.outputChannel.appendLine(`    ✅ 找到类名: ${child.text}`);
                     return child.text;
                 }
             }
         }
         
+        this.outputChannel.appendLine(`  🔍 向上查找父节点中的类声明`);
         let currentNode = methodNode.parent;
-        while (currentNode) {
+        let depth = 0;
+        while (currentNode && depth < 10) { // 限制递归深度
+            this.outputChannel.appendLine(`    🔍 检查父节点 ${depth}: ${currentNode.type}`);
             if (currentNode.type === 'class_declaration') {
+                this.outputChannel.appendLine(`    ✅ 找到父类声明节点`);
                 for (const child of currentNode.children) {
+                    this.outputChannel.appendLine(`      🔍 检查子节点: ${child.type}, 文本: "${child.text?.substring(0, 50)}..."`);
                     if (child.type === 'identifier') {
+                        this.outputChannel.appendLine(`      ✅ 找到类名: ${child.text}`);
                         return child.text;
                     }
                 }
             }
             currentNode = currentNode.parent;
+            depth++;
         }
         
+        this.outputChannel.appendLine(`  ❌ findClassName: 未找到类名`);
         return undefined;
     }
 
@@ -829,24 +1114,35 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
 
     private extractParameters(parametersNode: any): string[] {
         if (!parametersNode || !parametersNode.children) {
+            this.outputChannel.appendLine(`  🔍 extractParameters: 参数节点为空或没有子节点`);
             return [];
         }
 
+        this.outputChannel.appendLine(`  🔍 extractParameters: 开始提取参数，子节点数量: ${parametersNode.children.length}`);
         const parameters: string[] = [];
         
-        parametersNode.children.forEach((param: any) => {
+        parametersNode.children.forEach((param: any, index: number) => {
+            this.outputChannel.appendLine(`    🔍 检查参数 ${index}: 类型=${param.type}, 文本="${param.text?.substring(0, 50)}..."`);
+            
             if (param.type === 'parameter') {
                 const identifier = param.children?.find((child: any) => 
                     child.type === 'identifier'
                 );
                 if (identifier) {
+                    this.outputChannel.appendLine(`    ✅ 找到参数标识符: ${identifier.text}`);
                     parameters.push(identifier.text);
+                } else {
+                    this.outputChannel.appendLine(`    ❌ 参数节点中没有找到标识符`);
                 }
             } else if (param.type === 'identifier') {
+                this.outputChannel.appendLine(`    ✅ 直接找到参数标识符: ${param.text}`);
                 parameters.push(param.text);
+            } else {
+                this.outputChannel.appendLine(`    ❌ 未知参数类型: ${param.type}`);
             }
         });
 
+        this.outputChannel.appendLine(`  ✅ extractParameters: 提取到 ${parameters.length} 个参数: [${parameters.join(', ')}]`);
         return parameters;
     }
 
@@ -898,6 +1194,27 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         
         // 方法3：查找父节点的注释（对于C#等语言）
         if (language === 'csharp' && node.parent) {
+            let parent = node.parent;
+            let parentComments: string[] = [];
+            let currentParentSibling = parent.previousSibling;
+            
+            while (currentParentSibling) {
+                if (currentParentSibling.type === 'comment' || currentParentSibling.type === 'comment_block') {
+                    const commentText = currentParentSibling.text.trim();
+                    parentComments.unshift(commentText);
+                    currentParentSibling = currentParentSibling.previousSibling;
+                } else {
+                    break;
+                }
+            }
+            
+            if (parentComments.length > 0) {
+                allComments = [...parentComments, ...allComments];
+            }
+        }
+        
+        // 方法4：对于JavaScript/TypeScript，查找父节点的注释
+        if ((language === 'javascript' || language === 'typescript') && node.parent) {
             let parent = node.parent;
             let parentComments: string[] = [];
             let currentParentSibling = parent.previousSibling;
@@ -1035,6 +1352,13 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                     return trimmedLine;
                 }
             }
+            
+            // 如果没有找到JSDoc内容，尝试提取简单的行注释
+            const simpleComment = cleanText.replace(/^\/\/\s*/, '').trim();
+            if (simpleComment) {
+                console.log(`✅ 提取到JS/TS 简单注释: "${simpleComment}"`);
+                return simpleComment;
+            }
         }
         
         // 对于Python，查找docstring
@@ -1066,12 +1390,18 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     }
 
     private convertFunctionsToOutlineItems(functions: FunctionInfo[]): OutlineItem[] {
+        this.outputChannel.appendLine(`🔍 convertFunctionsToOutlineItems: 开始转换 ${functions.length} 个函数信息`);
+        
         // 按层级分组
         const topLevelItems = functions.filter(f => !f.className && !f.namespaceName);
         const nestedItems = functions.filter(f => f.className || f.namespaceName);
         
+        this.outputChannel.appendLine(`📊 顶级项目: ${topLevelItems.length}, 嵌套项目: ${nestedItems.length}`);
+        
         // 创建顶级项目
         const outlineItems = topLevelItems.map(func => {
+            this.outputChannel.appendLine(`🔍 处理顶级项目: ${func.name} (${func.type})`);
+            
             const item = new OutlineItem(
                 func.name,
                 func.comment || this.getDefaultDescription(func.type),
@@ -1088,9 +1418,12 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 nested.className === func.name || nested.namespaceName === func.name
             );
             
+            this.outputChannel.appendLine(`  🔍 为 ${func.name} 查找子项目，找到 ${children.length} 个`);
+            
             if (children.length > 0) {
                 item.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
                 children.forEach(child => {
+                    this.outputChannel.appendLine(`    ✅ 添加子项目: ${child.name} (${child.type})`);
                     const childItem = new OutlineItem(
                         child.name.split('.').pop() || child.name, // 只显示方法名，不显示类名
                         child.comment || this.getDefaultDescription(child.type),
@@ -1114,7 +1447,10 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             !topLevelItems.some(top => top.name === nested.className || top.name === nested.namespaceName)
         );
         
+        this.outputChannel.appendLine(`📊 孤儿嵌套项目: ${orphanedNested.length}`);
+        
         orphanedNested.forEach(func => {
+            this.outputChannel.appendLine(`🔍 处理孤儿嵌套项目: ${func.name} (${func.type}), 类名: ${func.className}`);
             const item = new OutlineItem(
                 func.name,
                 func.comment || this.getDefaultDescription(func.type),
@@ -1127,6 +1463,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             outlineItems.push(item);
         });
         
+        this.outputChannel.appendLine(`✅ convertFunctionsToOutlineItems: 转换完成，返回 ${outlineItems.length} 个大纲项`);
         return outlineItems;
     }
 
@@ -1158,66 +1495,263 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         }
     }
 
-    private diagnoseTreeStructure(rootNode: any, language: string): void {
-        console.warn('开始详细诊断树结构...');
+    private diagnoseTreeStructure(rootNode: any, language: string, timestamp: string): void {
+        this.outputChannel.appendLine(`[${timestamp}] 🔍 开始详细诊断树结构...`);
         const diagnostics: string[] = [];
 
         if (!rootNode) {
-            diagnostics.push('根节点为空');
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 根节点为空`);
             return;
         }
 
         if (!rootNode.children) {
-            diagnostics.push('根节点没有子节点');
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 根节点没有子节点`);
             return;
         }
 
         const functionNodes = rootNode.children.filter((node: any) => this.isFunctionDeclaration(node, language));
         if (functionNodes.length === 0) {
-            diagnostics.push('未找到任何函数声明或定义');
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到任何函数声明或定义`);
         } else {
-            diagnostics.push(`找到 ${functionNodes.length} 个函数声明/定义`);
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 找到 ${functionNodes.length} 个函数声明/定义`);
         }
 
         const classNodes = rootNode.children.filter((node: any) => node.type === 'class_declaration');
         if (classNodes.length === 0) {
-            diagnostics.push('未找到任何类声明');
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到任何类声明`);
         } else {
-            diagnostics.push(`找到 ${classNodes.length} 个类声明`);
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 找到 ${classNodes.length} 个类声明`);
         }
 
         const namespaceNodes = rootNode.children.filter((node: any) => node.type === 'namespace_declaration');
         if (namespaceNodes.length === 0) {
-            diagnostics.push('未找到任何命名空间声明');
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到任何命名空间声明`);
         } else {
-            diagnostics.push(`找到 ${namespaceNodes.length} 个命名空间声明`);
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 找到 ${namespaceNodes.length} 个命名空间声明`);
         }
 
         const propertyNodes = rootNode.children.filter((node: any) => node.type === 'property_declaration');
         if (propertyNodes.length === 0) {
-            diagnostics.push('未找到任何属性声明');
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到任何属性声明`);
         } else {
-            diagnostics.push(`找到 ${propertyNodes.length} 个属性声明`);
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 找到 ${propertyNodes.length} 个属性声明`);
         }
 
         const fieldNodes = rootNode.children.filter((node: any) => node.type === 'field_declaration');
         if (fieldNodes.length === 0) {
-            diagnostics.push('未找到任何字段声明');
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到任何字段声明`);
         } else {
-            diagnostics.push(`找到 ${fieldNodes.length} 个字段声明`);
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 找到 ${fieldNodes.length} 个字段声明`);
         }
 
         const eventNodes = rootNode.children.filter((node: any) => node.type === 'event_declaration');
         if (eventNodes.length === 0) {
-            diagnostics.push('未找到任何事件声明');
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到任何事件声明`);
         } else {
-            diagnostics.push(`找到 ${eventNodes.length} 个事件声明`);
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 找到 ${eventNodes.length} 个事件声明`);
         }
 
         if (diagnostics.length > 0) {
-            console.warn('树结构诊断:', diagnostics.join('\n'));
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 树结构诊断: ${diagnostics.join(', ')}`);
         } else {
-            console.log('✅ 树结构诊断: 没有发现明显问题');
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 树结构诊断: 没有发现明显问题`);
         }
+    }
+
+    private setupCursorChangeListener(): void {
+        // 监听文档变化
+        this.cursorChangeListener = vscode.workspace.onDidChangeTextDocument(event => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && event.document === editor.document) {
+                // 只有在文档内容真正变化时才刷新，而不是光标位置变化
+                this.refresh();
+            }
+        });
+
+        // 监听光标位置变化 - 优化：减少不必要的刷新
+        let lastHighlightedLine = -1;
+        vscode.window.onDidChangeTextEditorSelection(event => {
+            if (event.textEditor === vscode.window.activeTextEditor) {
+                const lineNumber = event.selections[0].active.line + 1; // 转换为1-based行号
+                
+                // 只有当行号真正变化时才高亮，避免重复处理
+                if (lineNumber !== lastHighlightedLine) {
+                    lastHighlightedLine = lineNumber;
+                    this.highlightFunctionAtLine(lineNumber);
+                }
+            }
+        });
+
+        // 监听活动编辑器变化
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor) {
+                // 重置最后高亮的行号
+                lastHighlightedLine = -1;
+                this.refresh();
+            }
+        });
+    }
+
+    private disposeCursorChangeListener(): void {
+        if (this.cursorChangeListener) {
+            this.cursorChangeListener.dispose();
+            this.cursorChangeListener = null;
+        }
+    }
+
+    // 新增：根据行号查找对应的函数
+    public findFunctionByLine(lineNumber: number): FunctionInfo | null {
+        if (!this.currentFunctions || this.currentFunctions.length === 0) {
+            return null;
+        }
+
+        // 查找包含当前行的函数
+        for (const func of this.currentFunctions) {
+            if (lineNumber >= func.startLine && lineNumber <= func.endLine) {
+                return func;
+            }
+        }
+
+        return null;
+    }
+
+    // 新增：根据行号查找对应的OutlineItem
+    public findOutlineItemByLine(lineNumber: number): OutlineItem | null {
+        if (!this.currentOutlineItems || this.currentOutlineItems.length === 0) {
+            return null;
+        }
+
+        // 递归查找包含当前行的OutlineItem
+        return this.findOutlineItemRecursive(this.currentOutlineItems, lineNumber);
+    }
+
+    private findOutlineItemRecursive(items: OutlineItem[], lineNumber: number): OutlineItem | null {
+        for (const item of items) {
+            if (lineNumber >= item.startLine && lineNumber <= item.endLine) {
+                // 检查子项中是否有更精确的匹配
+                if (item.children && item.children.length > 0) {
+                    const childMatch = this.findOutlineItemRecursive(item.children, lineNumber);
+                    if (childMatch) {
+                        return childMatch;
+                    }
+                }
+                return item;
+            }
+        }
+        return null;
+    }
+
+    // 新增：高亮显示指定行对应的函数
+    public highlightFunctionAtLine(lineNumber: number): void {
+        const config = getConfig();
+        
+        // 清除之前的高亮
+        this.clearAllHighlights();
+        
+        const outlineItem = this.findOutlineItemByLine(lineNumber);
+        if (outlineItem) {
+            // 设置高亮
+            outlineItem.setHighlighted(true);
+            if (config.enableVerboseLogging) {
+                this.outputChannel.appendLine(`🔍 在第 ${lineNumber} 行找到函数: ${outlineItem.label}`);
+            }
+            
+            // 确保包含该函数的父节点是展开状态
+            this.ensureParentExpanded(outlineItem);
+            
+            // 优化：只在真正需要时才刷新UI，避免频繁刷新
+            // 使用防抖机制来减少刷新频率
+            if (config.enableDebouncedRefresh) {
+                this.debouncedRefresh();
+            } else {
+                this.refresh();
+            }
+        } else {
+            // 根据配置决定是否显示警告日志
+            if (config.showFunctionNotFoundWarning) {
+                this.outputChannel.appendLine(`⚠️ 在第 ${lineNumber} 行没有找到函数`);
+            }
+        }
+    }
+
+    // 新增：防抖刷新机制
+    private refreshTimeout: NodeJS.Timeout | undefined;
+    private debouncedRefresh(): void {
+        const config = getConfig();
+        if (this.refreshTimeout) {
+            clearTimeout(this.refreshTimeout);
+        }
+        this.refreshTimeout = setTimeout(() => {
+            this.refresh();
+        }, config.cursorChangeRefreshDelay); // 使用配置中的延迟时间
+    }
+
+    // 新增：处理函数大纲项点击事件
+    public onFunctionItemClick(startLine: number): void {
+        this.outputChannel.appendLine(`🎯 函数大纲项被点击，行号: ${startLine}`);
+        // 延迟一点时间确保光标已经跳转完成
+        setTimeout(() => {
+            this.highlightFunctionAtLine(startLine);
+        }, 100);
+    }
+
+    // 新增：清除所有高亮
+    private clearAllHighlights(): void {
+        if (this.currentOutlineItems) {
+            this.clearHighlightsRecursive(this.currentOutlineItems);
+        }
+    }
+
+    private clearHighlightsRecursive(items: OutlineItem[]): void {
+        for (const item of items) {
+            item.setHighlighted(false);
+            if (item.children && item.children.length > 0) {
+                this.clearHighlightsRecursive(item.children);
+            }
+        }
+    }
+
+    // 新增：确保包含指定项的父节点是展开状态
+    private ensureParentExpanded(item: OutlineItem): void {
+        if (this.currentOutlineItems) {
+            this.ensureParentExpandedRecursive(this.currentOutlineItems, item);
+        }
+    }
+
+    private ensureParentExpandedRecursive(items: OutlineItem[], targetItem: OutlineItem): boolean {
+        for (const item of items) {
+            if (item.children && item.children.includes(targetItem)) {
+                // 找到父节点，确保它是展开状态
+                item.setExpanded();
+                return true;
+            }
+            if (item.children && item.children.length > 0) {
+                if (this.ensureParentExpandedRecursive(item.children, targetItem)) {
+                    // 在子节点中找到目标项，确保当前节点是展开状态
+                    item.setExpanded();
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // 新增：获取当前文档的所有函数信息
+    public getCurrentFunctions(): FunctionInfo[] {
+        return this.currentFunctions;
+    }
+
+    // 新增：获取当前文档的所有大纲项
+    public getCurrentOutlineItems(): OutlineItem[] {
+        return this.currentOutlineItems;
+    }
+
+    // 新增：清理资源
+    public dispose(): void {
+        if (this.refreshTimeout) {
+            clearTimeout(this.refreshTimeout);
+            this.refreshTimeout = undefined;
+        }
+        this.disposeCursorChangeListener();
     }
 }
