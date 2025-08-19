@@ -99,6 +99,18 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
+        // 添加命令注册成功的日志
+        outputChannel.appendLine('✅ 跳转命令注册成功: tree-sitter-outline.jumpToFunction');
+        
+        // 验证命令是否真的被注册
+        vscode.commands.getCommands(true).then(commands => {
+            if (commands.includes('tree-sitter-outline.jumpToFunction')) {
+                outputChannel.appendLine('✅ 命令验证成功: tree-sitter-outline.jumpToFunction 已注册');
+            } else {
+                outputChannel.appendLine('❌ 命令验证失败: tree-sitter-outline.jumpToFunction 未找到');
+            }
+        });
+
         // 新增：查找函数名称在行中的位置
         function findFunctionNamePosition(document: vscode.TextDocument, lineNumber: number, functionName: string): vscode.Position | null {
             try {
@@ -207,11 +219,22 @@ export function activate(context: vscode.ExtensionContext) {
 
         // 防抖机制 - 优化：增加延迟时间减少刷新频率
         let refreshTimeout: NodeJS.Timeout | undefined;
+        let currentDocumentUri: string | undefined;
+        
         const debouncedRefresh = () => {
             if (refreshTimeout) {
                 clearTimeout(refreshTimeout);
             }
             refreshTimeout = setTimeout(() => {
+                const timestamp = new Date().toLocaleTimeString();
+                const stackTrace = new Error().stack;
+                outputChannel.appendLine(`[${timestamp}] 🔄 debouncedRefresh() 被调用，调用栈:`);
+                if (stackTrace) {
+                    const lines = stackTrace.split('\n').slice(1, 6); // 只显示前5行调用栈
+                    lines.forEach(line => {
+                        outputChannel.appendLine(`[${timestamp}]   ${line.trim()}`);
+                    });
+                }
                 outputChannel.appendLine('🔄 防抖刷新函数大纲');
                 outlineProvider.refresh();
             }, 1000); // 增加到1000ms延迟，减少刷新频率
@@ -223,19 +246,30 @@ export function activate(context: vscode.ExtensionContext) {
                 // 只有在支持的语言时才刷新
                 const language = event.document.languageId;
                 if (['python', 'javascript', 'typescript', 'csharp'].includes(language)) {
-                    outputChannel.appendLine('📝 文档内容变化，准备刷新函数大纲');
-                    debouncedRefresh();
+                    // 检查是否有实际的内容变化
+                    if (event.contentChanges && event.contentChanges.length > 0) {
+                        outputChannel.appendLine('📝 文档内容变化，准备刷新函数大纲');
+                        debouncedRefresh();
+                    }
                 }
             }
         });
 
-        // 监听活动编辑器变化（使用防抖）
+        // 监听活动编辑器变化（使用防抖）- 只在真正切换文档时刷新
         const changeActiveEditorListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editor) {
                 const language = editor.document.languageId;
                 if (['python', 'javascript', 'typescript', 'csharp'].includes(language)) {
-                    outputChannel.appendLine('🔍 活动编辑器变化，准备刷新函数大纲');
-                    debouncedRefresh();
+                    const newDocumentUri = editor.document.uri.toString();
+                    
+                    // 只有在真正切换文档时才刷新
+                    if (newDocumentUri !== currentDocumentUri) {
+                        outputChannel.appendLine('🔍 切换文档，准备刷新函数大纲');
+                        currentDocumentUri = newDocumentUri;
+                        debouncedRefresh();
+                    } else {
+                        outputChannel.appendLine('🖱️ 同一文档内操作，不刷新函数大纲');
+                    }
                 }
             }
         });

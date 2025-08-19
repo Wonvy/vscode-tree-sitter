@@ -43,15 +43,15 @@ export class OutlineItem extends vscode.TreeItem {
             this.description = tooltip;
         }
         
-        // 设置增强的悬浮提示
-        this.tooltip = this.generateEnhancedTooltip();
-        
         // 设置命令，点击时将光标定位到函数名称前
         this.command = {
             command: 'tree-sitter-outline.jumpToFunction',
             title: '跳转到函数名称前',
             arguments: [startLine, this.functionName] // 传递行号和函数名
         };
+        
+        // 设置增强的悬浮提示
+        this.tooltip = this.generateEnhancedTooltip();
         
         // 添加点击事件处理，在跳转后主动触发高亮
         this.contextValue = 'function-item';

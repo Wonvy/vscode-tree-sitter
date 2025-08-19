@@ -13,6 +13,9 @@ export interface TreeSitterOutlineConfig {
     
     // 是否启用防抖刷新
     enableDebouncedRefresh: boolean;
+    
+    // 是否在内容变化时自动刷新大纲
+    autoRefreshOnContentChange: boolean;
 }
 
 export const defaultConfig: TreeSitterOutlineConfig = {
@@ -20,7 +23,8 @@ export const defaultConfig: TreeSitterOutlineConfig = {
     cursorChangeRefreshDelay: 100,
     documentChangeRefreshDelay: 1000,
     showFunctionNotFoundWarning: false,
-    enableDebouncedRefresh: true
+    enableDebouncedRefresh: true,
+    autoRefreshOnContentChange: true
 };
 
 export function getConfig(): TreeSitterOutlineConfig {
@@ -29,7 +33,8 @@ export function getConfig(): TreeSitterOutlineConfig {
         cursorChangeRefreshDelay: 100,
         documentChangeRefreshDelay: 1000,
         showFunctionNotFoundWarning: false,
-        enableDebouncedRefresh: true
+        enableDebouncedRefresh: true,
+        autoRefreshOnContentChange: true
     };
     
     return config;
