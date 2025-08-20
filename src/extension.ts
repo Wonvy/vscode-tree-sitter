@@ -61,8 +61,85 @@ export function activate(context: vscode.ExtensionContext) {
                 editor.revealRange(new vscode.Range(finalPos, finalPos), vscode.TextEditorRevealType.InCenter);
 
                 // 通知 provider 高亮并同步 TreeView 选中
-                outlineProvider.highlightFunctionAtLine(startLine);
+                await outlineProvider.highlightFunctionAtLine(startLine);
             } catch (e) {
+                console.error(e);
+            }
+        })
+    );
+
+    // ✅ 新增：调试命令 - 检查TreeView状态
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tree-sitter-outline.debugTreeView', async () => {
+            try {
+                const status = outlineProvider.getOutlineStatus();
+                const timestamp = new Date().toLocaleTimeString();
+                
+                outputChannel.appendLine(`[${timestamp}] 🔍 === TreeView 调试信息 ===`);
+                outputChannel.appendLine(`[${timestamp}] 📊 基本状态:`);
+                outputChannel.appendLine(`[${timestamp}]   - 已初始化: ${status.isInitialized ? '✅' : '❌'}`);
+                outputChannel.appendLine(`[${timestamp}]   - 函数数量: ${status.functionCount}`);
+                outputChannel.appendLine(`[${timestamp}]   - 大纲项数量: ${status.outlineItemCount}`);
+                outputChannel.appendLine(`[${timestamp}]   - 当前语言: ${status.currentLanguage}`);
+                outputChannel.appendLine(`[${timestamp}]   - 解析器状态: ${status.parserStatus}`);
+                
+                // 检查TreeView绑定状态
+                const treeViewStatus = outlineProvider.getTreeViewStatus();
+                outputChannel.appendLine(`[${timestamp}] 🎯 TreeView状态:`);
+                outputChannel.appendLine(`[${timestamp}]   - TreeView已绑定: ${treeViewStatus.isBound ? '✅' : '❌'}`);
+                outputChannel.appendLine(`[${timestamp}]   - 抑制标志: ${treeViewStatus.suppressSelectionSync ? '🔒' : '🔓'}`);
+                outputChannel.appendLine(`[${timestamp}]   - 当前选中项: ${treeViewStatus.currentSelection || '无'}`);
+                
+                // 测试 getParent 方法
+                const currentItems = outlineProvider.getCurrentOutlineItems();
+                if (currentItems.length > 0) {
+                    outputChannel.appendLine(`[${timestamp}] 🧪 测试 getParent 方法:`);
+                    const firstItem = currentItems[0];
+                    outputChannel.appendLine(`[${timestamp}]   - 测试项: ${firstItem.label}`);
+                    
+                    try {
+                        const parent = await outlineProvider.getParent(firstItem);
+                        if (parent) {
+                            outputChannel.appendLine(`[${timestamp}]   - getParent 结果: ${parent.label} ✅`);
+                        } else {
+                            outputChannel.appendLine(`[${timestamp}]   - getParent 结果: undefined (正常，顶级项) ✅`);
+                        }
+                    } catch (error) {
+                        outputChannel.appendLine(`[${timestamp}]   - getParent 执行失败: ${error} ❌`);
+                    }
+                }
+                
+                // 检查当前文档信息
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    outputChannel.appendLine(`[${timestamp}] 📄 当前文档:`);
+                    outputChannel.appendLine(`[${timestamp}]   - 文件名: ${editor.document.fileName}`);
+                    outputChannel.appendLine(`[${timestamp}]   - 语言: ${editor.document.languageId}`);
+                    outputChannel.appendLine(`[${timestamp}]   - 行数: ${editor.document.lineCount}`);
+                    outputChannel.appendLine(`[${timestamp}]   - 光标位置: ${editor.selection.active.line + 1}:${editor.selection.active.character + 1}`);
+                }
+                
+                outputChannel.appendLine(`[${timestamp}] 🔍 === 调试信息结束 ===`);
+                
+                // 显示通知
+                vscode.window.showInformationMessage(`TreeView调试信息已输出到输出面板`);
+            } catch (e) {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ 调试命令执行失败: ${e}`);
+                console.error(e);
+            }
+        })
+    );
+
+    // ✅ 新增：强制刷新TreeView选中状态命令
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tree-sitter-outline.forceRefreshSelection', async () => {
+            try {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 开始强制刷新TreeView选中状态...`);
+                await outlineProvider.forceRefreshTreeViewSelection();
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ 强制刷新TreeView选中状态完成`);
+                vscode.window.showInformationMessage(`TreeView选中状态已强制刷新`);
+            } catch (e) {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ 强制刷新TreeView选中状态失败: ${e}`);
                 console.error(e);
             }
         })

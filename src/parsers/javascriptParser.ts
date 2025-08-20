@@ -131,6 +131,11 @@ export class JavaScriptParser {
     const startLine = node.startPosition.row + 1;
     const endLine = node.endPosition.row + 1;
 
+    // 过滤掉各种简单函数
+    if (this.shouldSkipFunction(node, name, startLine, endLine)) {
+      return null;
+    }
+
     return {
       id: `${language}-fn-${name}-${node.startPosition.row}`,
       name,
@@ -146,6 +151,345 @@ export class JavaScriptParser {
       className: undefined,
       namespaceName: undefined,
     };
+  }
+
+  /**
+   * 判断是否应该跳过某个函数
+   */
+  private shouldSkipFunction(node: any, name: string, startLine: number, endLine: number): boolean {
+    // 1. 跳过单行的简单箭头函数（包括有名字的）
+    if (node.type === 'arrow_function' && startLine === endLine) {
+      const text = node.text || '';
+      // 更严格的过滤：单行且不包含花括号的箭头函数
+      const isSimple = !text.includes('{') && text.length < 120;
+      if (isSimple) {
+        // 额外检查：如果是非常简单的工具函数，也跳过
+        const isUtilityFunction = (
+          text.includes('=>') && 
+          (text.length < 80 || 
+           text.match(/=>\s*\(.*\)/) || // => (expression)
+           text.match(/=>\s*[^{]*$/) || // => simple expression
+           text.includes('??') ||       // 空值合并
+           text.includes('?.'))         // 可选链
+        );
+        if (isUtilityFunction) return true;
+      }
+    }
+
+    // 2. 跳过匿名回调函数（如 forEach、map 等）
+    if (name.startsWith('anonymous@')) {
+      // 检查父节点是否是方法调用
+      const parent = node.parent;
+      if (parent && this.isMethodCall(parent)) {
+        return true; // 跳过方法调用中的回调函数
+      }
+      
+      // 检查是否是简单的匿名函数
+      const text = node.text || '';
+      if (text.length < 150) return true;
+      
+      // 跳过 Promise 构造函数的回调
+      if (this.isPromiseCallback(node)) {
+        return true;
+      }
+    }
+
+    // 3. 跳过立即执行函数表达式 (IIFE)
+    if (this.isIIFE(node)) {
+      return true;
+    }
+
+    // 4. 跳过变量声明中的简单工具函数
+    if (this.isSimpleUtilityFunction(node, name)) {
+      return true;
+    }
+
+    // 5. 跳过所有回调函数（无论是否有名字）
+    if (this.isCallbackFunction(node)) {
+      return true;
+    }
+
+    // 6. 跳过对象字面量中的简单方法
+    if (this.isSimpleObjectMethod(node, name)) {
+      return true;
+    }
+
+    // 7. 跳过内部辅助函数
+    if (this.isInternalHelperFunction(node, name)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 检查是否是 Promise 构造函数的回调
+   */
+  private isPromiseCallback(node: any): boolean {
+    if (!node) return false;
+    
+    // 检查是否在 new Promise() 的参数中
+    let parent = node.parent;
+    while (parent) {
+      if (parent.type === 'new_expression') {
+        const constructor = parent.childForFieldName?.('constructor') || parent.children?.[1];
+        if (constructor && constructor.text === 'Promise') {
+          return true;
+        }
+      }
+      parent = parent.parent;
+      // 限制搜索深度
+      if (!parent || parent.type === 'program') break;
+    }
+    
+    return false;
+  }
+
+  /**
+   * 检查是否是内部辅助函数
+   */
+  private isInternalHelperFunction(node: any, name: string): boolean {
+    if (!node || !name) return false;
+    
+    // 常见的内部辅助函数名模式
+    const helperPatterns = [
+      /^check[A-Z]/,          // checkMonaco, checkStatus 等
+      /^validate[A-Z]/,       // validateData 等
+      /^handle[A-Z]/,         // handleError 等
+      /^process[A-Z]/,        // processData 等
+      /^parse[A-Z]/,          // parseResult 等
+      /^format[A-Z]/,         // formatValue 等
+      /^convert[A-Z]/,        // convertValue 等
+      /^transform[A-Z]/,      // transformData 等
+      /^helper[A-Z]/,         // helperFunction 等
+      /^util[A-Z]/,           // utilFunction 等
+      /^_/,                   // _privateFunction 等
+      /Helper$/,              // functionHelper 等
+      /Util$/,                // functionUtil 等
+      /Internal$/             // functionInternal 等
+    ];
+    
+    // 检查是否匹配内部辅助函数模式
+    const isHelperName = helperPatterns.some(pattern => pattern.test(name));
+    
+    if (isHelperName) {
+      // 检查是否在其他函数内部定义
+      let parent = node.parent;
+      let depth = 0;
+      while (parent && depth < 10) {
+        if (parent.type === 'function_declaration' || 
+            parent.type === 'function_expression' || 
+            parent.type === 'arrow_function' ||
+            parent.type === 'method_definition') {
+          return true; // 在其他函数内部定义的辅助函数
+        }
+        parent = parent.parent;
+        depth++;
+      }
+      
+      // 即使不在函数内部，如果是明显的辅助函数名，也跳过
+      const obviousHelpers = ['checkMonaco', 'checkStatus', 'validateInput', 'handleError'];
+      if (obviousHelpers.includes(name)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * 检查是否是回调函数
+   */
+  private isCallbackFunction(node: any): boolean {
+    if (!node) return false;
+    
+    // 简化逻辑：直接检查父节点链
+    let current = node;
+    let depth = 0;
+    const maxDepth = 5; // 限制搜索深度
+    
+    while (current && depth < maxDepth) {
+      // 检查是否是方法调用
+      if (current.type === 'call_expression') {
+        const callee = current.childForFieldName?.('function') || current.children?.[0];
+        
+        if (callee) {
+          // 直接方法调用：forEach()
+          if (callee.type === 'identifier') {
+            const methodName = callee.text;
+            if (this.isCallbackMethod(methodName)) {
+              return true;
+            }
+          }
+          
+          // 成员方法调用：array.forEach()
+          if (callee.type === 'member_expression') {
+            const property = callee.childForFieldName?.('property') || callee.children?.[2];
+            if (property && property.text) {
+              const methodName = property.text;
+              if (this.isCallbackMethod(methodName)) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      
+      current = current.parent;
+      depth++;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * 检查是否是回调方法
+   */
+  private isCallbackMethod(methodName: string): boolean {
+    const callbackMethods = [
+      'forEach', 'map', 'filter', 'reduce', 'find', 'findIndex',
+      'some', 'every', 'sort', 'reverse', 'slice', 'splice',
+      'push', 'pop', 'shift', 'unshift', 'includes', 'indexOf',
+      'setTimeout', 'setInterval', 'addEventListener', 'removeEventListener',
+      'then', 'catch', 'finally', // Promise 方法
+      'on', 'off', 'once', 'emit' // 事件方法
+    ];
+    
+    return callbackMethods.includes(methodName);
+  }
+  
+  /**
+   * 检查节点是否在方法调用的参数中
+   */
+  private isNodeInArguments(node: any, callExpression: any): boolean {
+    const args = callExpression.childForFieldName?.('arguments') || 
+                 callExpression.children?.find((c: any) => c.type === 'arguments');
+    
+    if (!args) return false;
+    
+    // 递归检查参数中是否包含目标节点
+    const containsNode = (parent: any, target: any): boolean => {
+      if (parent === target) return true;
+      if (!parent.children) return false;
+      
+      for (const child of parent.children) {
+        if (containsNode(child, target)) return true;
+      }
+      return false;
+    };
+    
+    return containsNode(args, node);
+  }
+
+  /**
+   * 检查是否是简单的工具函数
+   */
+  private isSimpleUtilityFunction(node: any, name: string): boolean {
+    // 检查是否是变量声明中的箭头函数
+    const parent = node.parent;
+    if (parent && parent.type === 'variable_declarator') {
+      const text = node.text || '';
+      
+      // 简单工具函数的特征：
+      // 1. 单行箭头函数
+      // 2. 包含常见的工具函数模式
+      const utilityPatterns = [
+        /=>\s*\(.*\?\?.*\)/, // 空值合并模式：=> (a ?? b)
+        /=>\s*.*\.toString\(\)/, // 转字符串模式
+        /=>\s*.*\.toFixed\(\)/, // 数字格式化
+        /=>\s*.*\.padStart\(/, // 字符串填充
+        /=>\s*.*\.toUpperCase\(\)/, // 大小写转换
+        /=>\s*.*\.toLowerCase\(\)/, // 大小写转换
+        /=>\s*.*\[\w+\]/, // 索引访问模式：=> obj[key]
+        /=>\s*\w+\s*[+\-*/]\s*\w+/, // 简单运算：=> a + b
+      ];
+
+      return utilityPatterns.some(pattern => pattern.test(text)) && text.length < 120;
+    }
+
+    return false;
+  }
+
+  /**
+   * 检查是否是方法调用（如 forEach、map、filter 等）
+   */
+  private isMethodCall(node: any): boolean {
+    if (!node) return false;
+    
+    // 检查是否是方法调用
+    if (node.type === 'call_expression') {
+      const callee = node.childForFieldName?.('function') || node.children?.[0];
+      if (callee && callee.type === 'member_expression') {
+        const property = callee.childForFieldName?.('property') || callee.children?.[2];
+        if (property && property.text) {
+          const methodName = property.text;
+          // 常见的数组/对象方法
+          const callbackMethods = [
+            'forEach', 'map', 'filter', 'reduce', 'find', 'findIndex',
+            'some', 'every', 'sort', 'reverse', 'slice', 'splice',
+            'push', 'pop', 'shift', 'unshift', 'includes', 'indexOf'
+          ];
+          return callbackMethods.includes(methodName);
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * 检查是否是立即执行函数表达式 (IIFE)
+   */
+  private isIIFE(node: any): boolean {
+    if (!node) return false;
+    
+    // 检查父节点是否是 IIFE 模式
+    const parent = node.parent;
+    if (parent && parent.type === 'call_expression') {
+      const callee = parent.childForFieldName?.('function') || parent.children?.[0];
+      // 如果函数节点就是当前节点，且被立即调用，则是 IIFE
+      return callee === node;
+    }
+    
+    return false;
+  }
+
+  /**
+   * 检查是否是对象字面量中的简单方法
+   */
+  private isSimpleObjectMethod(node: any, name: string): boolean {
+    if (!node) return false;
+    
+    const parent = node.parent;
+    if (parent && parent.type === 'pair') {
+      // 检查是否是对象字面量中的简单方法
+      const text = node.text || '';
+      
+      // 常见的简单对象方法名
+      const simpleMethodNames = [
+        'run', 'handler', 'callback', 'onClick', 'onSubmit', 'onLoad',
+        'onError', 'success', 'error', 'complete', 'done', 'fail',
+        'init', 'destroy', 'setup', 'cleanup', 'reset', 'update',
+        'render', 'draw', 'paint', 'refresh', 'reload'
+      ];
+      
+      // 如果是简单方法名且代码较短，跳过
+      if (simpleMethodNames.includes(name) && text.length < 200) {
+        return true;
+      }
+      
+      // 如果是单行的对象方法，也跳过
+      if (node.type === 'arrow_function' && text.length < 150 && !text.includes('\n')) {
+        return true;
+      }
+      
+      // 如果只是调用其他方法，也跳过
+      if (text.includes('this.') && text.split('\n').length <= 3) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   /* ===================== 名称解析 ===================== */

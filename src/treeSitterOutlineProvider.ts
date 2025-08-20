@@ -137,6 +137,56 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         return this.processDocument(editor.document, timestamp);
     }
 
+    getParent(element: OutlineItem): Thenable<OutlineItem | undefined> {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🔍 getParent 被调用，元素: ${element.label}`);
+        
+        // 检查参数有效性
+        if (!element) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 传入的element为空`);
+            return Promise.resolve(undefined);
+        }
+        
+        // 检查当前大纲项数组
+        if (!this.currentOutlineItems || this.currentOutlineItems.length === 0) {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ currentOutlineItems为空或未定义`);
+            return Promise.resolve(undefined);
+        }
+        
+        this.outputChannel.appendLine(`[${timestamp}] 📊 当前大纲项数量: ${this.currentOutlineItems.length}`);
+        
+        // 递归查找父级
+        const findParentRecursive = (items: OutlineItem[], target: OutlineItem): OutlineItem | undefined => {
+            for (const item of items) {
+                // 检查当前项是否是目标项的父级
+                if (item.children && item.children.includes(target)) {
+                    this.outputChannel.appendLine(`[${timestamp}] ✅ 找到直接父级: ${item.label}`);
+                    return item;
+                }
+                
+                // 递归查找子项
+                if (item.children && item.children.length > 0) {
+                    const parent = findParentRecursive(item.children, target);
+                    if (parent) {
+                        this.outputChannel.appendLine(`[${timestamp}] ✅ 找到间接父级: ${parent.label}`);
+                        return parent;
+                    }
+                }
+            }
+            return undefined;
+        };
+        
+        const parent = findParentRecursive(this.currentOutlineItems, element);
+        
+        if (parent) {
+            this.outputChannel.appendLine(`[${timestamp}] 🎉 父级查找成功: ${parent.label}`);
+            return Promise.resolve(parent);
+        } else {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 未找到父级，返回 undefined`);
+            return Promise.resolve(undefined);
+        }
+    }
+
     private getLastActiveEditor(): vscode.TextEditor | undefined {
         if (vscode.window.activeTextEditor) {
             return vscode.window.activeTextEditor;
@@ -571,7 +621,11 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         
         vscode.window.onDidChangeTextEditorSelection(event => {
             // 检查抑制标志，避免循环触发
-            if (this.suppressSelectionSync) return;
+            if (this.suppressSelectionSync) {
+                const timestamp = new Date().toLocaleTimeString();
+                this.outputChannel.appendLine(`[${timestamp}] 🔒 抑制标志已设置，跳过光标变化处理`);
+                return;
+            }
             
             // 检查当前编辑器是否是代码文档
             const currentEditor = vscode.window.activeTextEditor;
@@ -591,18 +645,24 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             // 检查是否是用户点击操作
             if (currentTime - lastClickTime < CLICK_THRESHOLD) {
                 isUserClicking = true;
+                const timestamp = new Date().toLocaleTimeString();
+                this.outputChannel.appendLine(`[${timestamp}] 🖱️ 检测到用户点击操作，设置点击标记`);
                 // 延迟重置标记，避免影响正常的光标移动
                 setTimeout(() => {
                     isUserClicking = false;
+                    const resetTimestamp = new Date().toLocaleTimeString();
+                    this.outputChannel.appendLine(`[${resetTimestamp}] 🔓 用户点击标记已重置`);
                 }, CLICK_THRESHOLD);
             }
             
             // 只有当行号真正改变时才处理高亮
             if (lineNumber !== lastHighlightedLine) {
+                const timestamp = new Date().toLocaleTimeString();
+                this.outputChannel.appendLine(`[${timestamp}] 🖱️ 光标位置变化: ${lastHighlightedLine} -> ${lineNumber}`);
+                
                 // 只有在非用户点击状态下才记录日志，并且减少日志频率
                 if (currentTime - lastLogTime > LOG_INTERVAL && !isUserClicking) {
-                    const timestamp = new Date().toLocaleTimeString();
-                    this.outputChannel.appendLine(`[${timestamp}] 🖱️ 光标位置变化: ${lastHighlightedLine} -> ${lineNumber}`);
+                    this.outputChannel.appendLine(`[${timestamp}] 📝 记录光标变化日志`);
                     lastLogTime = currentTime;
                 }
                 
@@ -610,21 +670,28 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 
                 // 检查当前行是否在已加载的函数范围内
                 if (this.isOutlineLoaded() && this.isLineInLoadedFunctions(lineNumber)) {
+                    this.outputChannel.appendLine(`[${timestamp}] ✅ 第${lineNumber}行在已加载函数范围内，准备高亮`);
+                    
                     // 如果是用户点击操作，延迟处理高亮，避免与大纲刷新冲突
                     if (isUserClicking) {
-                        setTimeout(() => {
-                            this.highlightFunctionAtLine(lineNumber);
+                        this.outputChannel.appendLine(`[${timestamp}] ⏰ 用户点击操作，延迟200ms处理高亮`);
+                        setTimeout(async () => {
+                            const highlightTimestamp = new Date().toLocaleTimeString();
+                            this.outputChannel.appendLine(`[${highlightTimestamp}] 🎯 开始执行延迟高亮，行号: ${lineNumber}`);
+                            await this.highlightFunctionAtLine(lineNumber);
                         }, 200); // 增加延迟时间
                     } else {
-                        setTimeout(() => {
-                            this.highlightFunctionAtLine(lineNumber);
+                        this.outputChannel.appendLine(`[${timestamp}] ⏰ 正常光标移动，延迟100ms处理高亮`);
+                        setTimeout(async () => {
+                            const highlightTimestamp = new Date().toLocaleTimeString();
+                            this.outputChannel.appendLine(`[${highlightTimestamp}] 🎯 开始执行正常高亮，行号: ${lineNumber}`);
+                            await this.highlightFunctionAtLine(lineNumber);
                         }, 100);
                     }
                 } else {
                     // 如果当前行不在已加载的函数范围内，不进行高亮操作
                     // 这样可以避免触发不必要的文档解析
                     if (currentTime - lastLogTime > LOG_INTERVAL) {
-                        const timestamp = new Date().toLocaleTimeString();
                         this.outputChannel.appendLine(`[${timestamp}] ℹ️ 第${lineNumber}行不在已加载函数范围内，跳过高亮`);
                         lastLogTime = currentTime;
                     }
@@ -710,61 +777,124 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         return null;
     }
 
-    public highlightFunctionAtLine(lineNumber: number): void {
-        // 检查当前编辑器是否是代码文档
-        const currentEditor = vscode.window.activeTextEditor;
-        if (!currentEditor) {
-            return; // 没有活动编辑器，跳过
+    public async highlightFunctionAtLine(lineNumber: number): Promise<void> {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🎯 highlightFunctionAtLine 开始执行，行号: ${lineNumber}`);
+        
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 没有活动编辑器`);
+            return;
+        }
+
+        const uri = editor.document.uri.toString();
+        if (this.isSpecialDocument(uri)) {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 跳过特殊文档: ${uri}`);
+            return;
         }
         
-        // 检查当前文档是否是代码文档
-        const documentUri = currentEditor.document.uri.toString();
-        if (this.isSpecialDocument(documentUri)) {
-            return; // 是特殊文档（如输出窗口），跳过
-        }
-        
-        // 检查是否有加载的函数大纲
         if (!this.isOutlineLoaded()) {
-            return; // 没有加载函数大纲，跳过
-        }
-        
-        // 查找对应的OutlineItem（先找出来再决定是否需要刷新）
-        const outlineItem = this.findOutlineItemByLine(lineNumber);
-        if (!outlineItem) {
-            const timestamp = new Date().toLocaleTimeString();
-            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 第${lineNumber}行未找到对应的函数`);
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 函数大纲未加载完成`);
             return;
         }
 
-        // 若与上一次高亮同一项，避免重复清空/刷新/展开/选中，减少闪烁
-        if (this.lastHighlightedItem === outlineItem) {
-            // 仍确保父节点是展开状态（多数情况下已展开，此操作很快）
-            this.ensureParentExpanded(outlineItem);
+        this.outputChannel.appendLine(`[${timestamp}] 🔍 查找第${lineNumber}行对应的函数...`);
+        const item = this.findOutlineItemByLine(lineNumber);
+        if (!item) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 第${lineNumber}行未找到对应函数`);
+            // 输出当前所有函数的行号范围，帮助调试
+            if (this.currentFunctions.length > 0) {
+                this.outputChannel.appendLine(`[${timestamp}] 📊 当前已加载的函数范围:`);
+                this.currentFunctions.forEach((func, index) => {
+                    this.outputChannel.appendLine(`[${timestamp}]   ${index + 1}. ${func.name}: ${func.startLine}-${func.endLine}`);
+                });
+            }
             return;
         }
 
-        // 不同项：先清除旧高亮，再设置新高亮
+        this.outputChannel.appendLine(`[${timestamp}] ✅ 找到函数: ${item.label} (${item.startLine}-${item.endLine})`);
+
+        // 清旧高亮 + 设新高亮
+        this.outputChannel.appendLine(`[${timestamp}] 🧹 清除所有高亮...`);
         this.clearAllHighlights();
+        item.setHighlighted(true);
+        this.outputChannel.appendLine(`[${timestamp}] ✨ 设置新高亮: ${item.label}`);
 
-        outlineItem.setHighlighted(true);
-        this.ensureParentExpanded(outlineItem);
+        // 先展开父链，避免 reveal 看不到
+        this.outputChannel.appendLine(`[${timestamp}] 📂 确保父级展开...`);
+        this.ensureParentExpanded(item);
 
-        // 刷新高亮但不重新解析
+        // 刷新样式（不重新解析）
+        this.outputChannel.appendLine(`[${timestamp}] 🔄 强制刷新高亮状态...`);
         this.forceRefreshHighlight();
 
-        // 更新最新高亮项
-        this.lastHighlightedItem = outlineItem;
+        // === 关键：临时聚焦大纲，确保出现 focused selected ===
+        const prevEditor = vscode.window.activeTextEditor;
+        this.outputChannel.appendLine(`[${timestamp}] 🎯 开始选中TreeView项...`);
+        
+        const revealOnce = async () => {
+            this.outputChannel.appendLine(`[${timestamp}] 🔒 设置抑制标志，防止循环触发`);
+            this.suppressSelectionSync = true;
+            try {
+                if (!this.treeView) {
+                    this.outputChannel.appendLine(`[${timestamp}] ❌ TreeView未绑定，无法选中`);
+                    return;
+                }
+                
+                this.outputChannel.appendLine(`[${timestamp}] 🎯 调用treeView.reveal，参数: select=true, focus=true, expand=true`);
+                await this.treeView.reveal(item, { select: true, focus: true, expand: true });
+                this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView.reveal 执行成功`);
+                
+                // 验证选中状态
+                const selection = this.treeView.selection;
+                if (selection && selection.length > 0) {
+                    this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView选中状态验证成功，选中项: ${selection[0].label}`);
+                } else {
+                    this.outputChannel.appendLine(`[${timestamp}] ⚠️ TreeView选中状态验证失败，selection为空`);
+                }
+                
+            } catch (error) {
+                this.outputChannel.appendLine(`[${timestamp}] ❌ TreeView.reveal 执行失败: ${error}`);
+            } finally {
+                // 稍等一拍再解除抑制，避免回环
+                this.outputChannel.appendLine(`[${timestamp}] ⏰ 延迟120ms后解除抑制标志`);
+                setTimeout(() => { 
+                    this.suppressSelectionSync = false; 
+                    this.outputChannel.appendLine(`[${timestamp}] 🔓 抑制标志已解除`);
+                }, 120);
+            }
+        };
 
-        // 选中并展开大纲项：用抑制标志 + try/finally 防止异常后标志卡死
-        this.suppressSelectionSync = true;
         try {
-            this.treeView?.reveal(outlineItem, { select: true, focus: false, expand: true });
-        } finally {
-            setTimeout(() => { this.suppressSelectionSync = false; }, 120);
+            await revealOnce();
+        } catch (error) {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 第一次reveal失败，等待120ms后重试: ${error}`);
+            // 大纲刚刷新未 ready 时，重试一次
+            await new Promise(r => setTimeout(r, 120));
+            try { 
+                this.outputChannel.appendLine(`[${timestamp}] 🔄 开始重试reveal...`);
+                await revealOnce(); 
+                this.outputChannel.appendLine(`[${timestamp}] ✅ 重试reveal成功`);
+            } catch (retryError) {
+                this.outputChannel.appendLine(`[${timestamp}] ❌ 重试reveal也失败: ${retryError}`);
+            }
         }
 
-        const timestamp = new Date().toLocaleTimeString();
-        this.outputChannel.appendLine(`[${timestamp}] 🎯 高亮函数: ${outlineItem.label} (第${lineNumber}行)`);
+        // 如果不想长期抢焦点：把焦点还回编辑器
+        // （若你希望大纲一直保持 focused，就注释掉下面三行）
+        if (prevEditor) {
+            this.outputChannel.appendLine(`[${timestamp}] 🔄 将焦点切回编辑器...`);
+            await vscode.window.showTextDocument(prevEditor.document, {
+                viewColumn: prevEditor.viewColumn,
+                preserveFocus: false,      // 把焦点切回编辑器
+                preview: true
+            });
+            this.outputChannel.appendLine(`[${timestamp}] ✅ 焦点已切回编辑器`);
+        }
+
+        this.outputChannel.appendLine(
+            `[${timestamp}] 🎉 高亮并选中完成: ${item.label} (第${lineNumber}行)`
+        );
     }
 
     private refreshTimeout: NodeJS.Timeout | undefined;
@@ -778,9 +908,9 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         }, config.cursorChangeRefreshDelay);
     }
 
-    public onFunctionItemClick(startLine: number): void {
+    public async onFunctionItemClick(startLine: number): Promise<void> {
         // 使用新的用户点击处理方法
-        this.handleUserClick(startLine);
+        await this.handleUserClick(startLine);
     }
 
     private clearAllHighlights(): void {
@@ -834,8 +964,32 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
      * 绑定 TreeView 句柄，以便后续选中并展开大纲项
      */
     public bindTreeView(view: vscode.TreeView<OutlineItem>) {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🔗 开始绑定TreeView句柄...`);
+        
+        if (!view) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ TreeView参数为空，绑定失败`);
+            return;
+        }
+        
         this.treeView = view;
-        this.outputChannel.appendLine('✅ TreeView 句柄绑定成功');
+        this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView句柄绑定成功`);
+        
+        // 验证绑定状态
+        if (this.treeView) {
+            this.outputChannel.appendLine(`[${timestamp}] 🔍 TreeView绑定验证:`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 句柄存在: ✅`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 当前选中: ${this.treeView.selection?.length || 0} 项`);
+            
+            // 检查TreeView是否就绪
+            if (this.isOutlineLoaded()) {
+                this.outputChannel.appendLine(`[${timestamp}] 🎉 TreeView已就绪，可以正常使用`);
+            } else {
+                this.outputChannel.appendLine(`[${timestamp}] ⏳ TreeView已绑定，但函数大纲尚未加载完成`);
+            }
+        } else {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ TreeView绑定验证失败，句柄为空`);
+        }
     }
 
     public isOutlineLoaded(): boolean {
@@ -871,6 +1025,123 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             currentLanguage: this.currentLanguage,
             parserStatus: this.parser ? '已创建' : '未创建'
         };
+    }
+
+    /**
+     * 获取TreeView的状态信息
+     */
+    public getTreeViewStatus(): {
+        isBound: boolean;
+        suppressSelectionSync: boolean;
+        currentSelection: string | null;
+        treeViewReady: boolean;
+    } {
+        let currentSelection: string | null = null;
+        if (this.treeView?.selection && this.treeView.selection.length > 0) {
+            const item = this.treeView.selection[0];
+            if (typeof item.label === 'string') {
+                currentSelection = item.label;
+            } else if (item.label && typeof item.label === 'object' && 'label' in item.label) {
+                currentSelection = (item.label as any).label;
+            }
+        }
+            
+        return {
+            isBound: !!this.treeView,
+            suppressSelectionSync: this.suppressSelectionSync,
+            currentSelection: currentSelection,
+            treeViewReady: !!this.treeView && this.isOutlineLoaded()
+        };
+    }
+
+    /**
+     * 强制刷新TreeView选中状态
+     * 用于调试和修复选中问题
+     */
+    public async forceRefreshTreeViewSelection(): Promise<void> {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🔄 强制刷新TreeView选中状态开始...`);
+        
+        if (!this.treeView) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ TreeView未绑定，无法刷新选中状态`);
+            return;
+        }
+        
+        if (!this.isOutlineLoaded()) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 函数大纲未加载，无法刷新选中状态`);
+            return;
+        }
+        
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 没有活动编辑器，无法确定当前位置`);
+            return;
+        }
+        
+        const currentLine = editor.selection.active.line + 1;
+        this.outputChannel.appendLine(`[${timestamp}] 📍 当前光标位置: 第${currentLine}行`);
+        
+        // 查找当前行对应的函数
+        const item = this.findOutlineItemByLine(currentLine);
+        if (!item) {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 第${currentLine}行未找到对应函数，尝试选中第一个函数`);
+            if (this.currentOutlineItems.length > 0) {
+                const firstItem = this.currentOutlineItems[0];
+                this.outputChannel.appendLine(`[${timestamp}] 🎯 选中第一个函数: ${firstItem.label}`);
+                await this.selectTreeViewItem(firstItem);
+            }
+            return;
+        }
+        
+        this.outputChannel.appendLine(`[${timestamp}] 🎯 找到对应函数: ${item.label}，开始选中...`);
+        await this.selectTreeViewItem(item);
+    }
+    
+    /**
+     * 选中指定的TreeView项
+     */
+    private async selectTreeViewItem(item: OutlineItem): Promise<void> {
+        const timestamp = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${timestamp}] 🎯 开始选中TreeView项: ${item.label}`);
+        
+        try {
+            // 设置抑制标志，防止循环触发
+            this.suppressSelectionSync = true;
+            this.outputChannel.appendLine(`[${timestamp}] 🔒 设置抑制标志`);
+            
+            // 确保父级展开
+            this.ensureParentExpanded(item);
+            this.outputChannel.appendLine(`[${timestamp}] 📂 父级展开完成`);
+            
+            // 选中并聚焦
+            await this.treeView!.reveal(item, { select: true, focus: true, expand: true });
+            this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView.reveal 执行成功`);
+            
+            // 验证选中状态
+            const selection = this.treeView!.selection;
+            if (selection && selection.length > 0) {
+                const selectedItem = selection[0];
+                this.outputChannel.appendLine(`[${timestamp}] ✅ 选中状态验证成功，当前选中: ${selectedItem.label}`);
+                
+                if (selectedItem.label === item.label) {
+                    this.outputChannel.appendLine(`[${timestamp}] 🎉 目标项选中成功: ${item.label}`);
+                } else {
+                    this.outputChannel.appendLine(`[${timestamp}] ⚠️ 选中项不匹配，期望: ${item.label}，实际: ${selectedItem.label}`);
+                }
+            } else {
+                this.outputChannel.appendLine(`[${timestamp}] ❌ 选中状态验证失败，selection为空`);
+            }
+            
+        } catch (error) {
+            this.outputChannel.appendLine(`[${timestamp}] ❌ 选中TreeView项失败: ${error}`);
+        } finally {
+            // 延迟解除抑制标志
+            setTimeout(() => {
+                this.suppressSelectionSync = false;
+                const resetTimestamp = new Date().toLocaleTimeString();
+                this.outputChannel.appendLine(`[${resetTimestamp}] 🔓 抑制标志已解除`);
+            }, 150);
+        }
     }
 
     public dispose(): void {
@@ -924,26 +1195,26 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
      * 处理用户点击函数大纲项的操作
      * 这个方法专门用于处理用户点击，避免与文档内容变化冲突
      */
-    public handleUserClick(startLine: number): void {
+    public async handleUserClick(startLine: number): Promise<void> {
         this.outputChannel.appendLine(`🎯 用户点击函数大纲项，行号: ${startLine}`);
         
         // 延迟处理，确保光标跳转完成
-        setTimeout(() => {
+        setTimeout(async () => {
             // 检查当前光标位置
             const editor = vscode.window.activeTextEditor;
             if (editor) {
                 const currentLine = editor.selection.active.line + 1;
                 if (currentLine === startLine) {
                     // 光标位置匹配，执行高亮
-                    this.highlightFunctionAtLine(startLine);
+                    await this.highlightFunctionAtLine(startLine);
                 } else {
                     // 光标位置不匹配，记录警告并尝试高亮
                     this.outputChannel.appendLine(`⚠️ 光标跳转可能失败，当前行: ${currentLine}, 目标行: ${startLine}`);
-                    this.highlightFunctionAtLine(startLine);
+                    await this.highlightFunctionAtLine(startLine);
                 }
             } else {
                 // 没有活动编辑器，直接高亮
-                this.highlightFunctionAtLine(startLine);
+                await this.highlightFunctionAtLine(startLine);
             }
         }, 200); // 使用较长的延迟时间
     }

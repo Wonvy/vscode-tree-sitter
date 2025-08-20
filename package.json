@@ -44,6 +44,16 @@
         "command": "tree-sitter-outline.jumpToFunction",
         "title": "跳转到函数",
         "category": "Tree-sitter Outline"
+      },
+      {
+        "command": "tree-sitter-outline.debugTreeView",
+        "title": "调试TreeView状态",
+        "category": "Tree-sitter Outline"
+      },
+      {
+        "command": "tree-sitter-outline.forceRefreshSelection",
+        "title": "强制刷新TreeView选中状态",
+        "category": "Tree-sitter Outline"
       }
     ],
     "menus": {
