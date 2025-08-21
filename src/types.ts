@@ -9,7 +9,7 @@ export interface FunctionInfo {
   visibility: 'public' | 'private' | 'protected' | 'internal';
   isStatic: boolean;
   language: string;
-  type: 'function' | 'method' | 'constructor' | 'class' | 'namespace' | 'property' | 'field' | 'event';
+  type: 'function' | 'method' | 'constructor' | 'class' | 'namespace' | 'property' | 'field' | 'event' | 'interface' | 'type' | 'enum' | 'enum_member';
   className?: string;
   namespaceName?: string;
 }

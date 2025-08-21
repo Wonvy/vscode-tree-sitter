@@ -18,6 +18,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     private currentLanguage: string = '';
     private isInitialized = false;
     private jsLanguage: TreeSitterLanguage | null = null;
+    private tsLanguage: TreeSitterLanguage | null = null;
     private csLanguage: TreeSitterLanguage | null = null;
     private pyLanguage: TreeSitterLanguage | null = null;
     private extensionUri: vscode.Uri;
@@ -66,6 +67,19 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 this.outputChannel.appendLine('✅ JavaScript 语法加载成功');
             } catch (error) {
                 this.outputChannel.appendLine(`❌ JavaScript 语法文件加载失败: ${error}`);
+            }
+
+            // 加载TypeScript语法
+            this.outputChannel.appendLine('📥 正在加载 TypeScript 语法文件...');
+            const tsWasmPath = vscode.Uri.file(path.join(this.extensionUri.fsPath, 'public', 'tree-sitter-typescript.wasm'));
+            try {
+                const tsWasmBuffer = await vscode.workspace.fs.readFile(tsWasmPath);
+                this.outputChannel.appendLine(`📊 TypeScript WASM 文件大小: ${tsWasmBuffer.length} 字节`);
+                this.tsLanguage = await TreeSitterLanguage.load(tsWasmBuffer);
+                this.outputChannel.appendLine('✅ TypeScript 语法加载成功');
+            } catch (error) {
+                this.outputChannel.appendLine(`❌ TypeScript 语法文件加载失败: ${error}`);
+                this.outputChannel.appendLine('💡 请运行 node download-typescript-grammar.js 下载 TypeScript 语法文件');
             }
 
             // 加载C#语法
@@ -280,11 +294,21 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                     console.log('✅ 设置 Python 语言');
                 }
                 break;
-            case 'javascript':
             case 'typescript':
+            case 'typescriptreact':
+                if (this.tsLanguage) {
+                    this.parser.setLanguage(this.tsLanguage);
+                    console.log('✅ 设置 TypeScript 语言');
+                } else if (this.jsLanguage) {
+                    // 备用：如果没有 TypeScript 语法，使用 JavaScript 语法
+                    this.parser.setLanguage(this.jsLanguage);
+                    console.log('⚠️ TypeScript 语法未加载，使用 JavaScript 语法作为备用');
+                }
+                break;
+            case 'javascript':
                 if (this.jsLanguage) {
                     this.parser.setLanguage(this.jsLanguage);
-                    console.log('✅ 设置 JavaScript/TypeScript 语言');
+                    console.log('✅ 设置 JavaScript 语言');
                 }
                 break;
             case 'csharp':
@@ -372,7 +396,14 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         if (parser) {
             if (language === 'csharp' && parser.extractCSharpHierarchy) {
                 parser.extractCSharpHierarchy(rootNode, functions, language);
-            } else if ((language === 'javascript' || language === 'typescript') && parser.extractJavaScriptHierarchy) {
+            } else if (language === 'typescript' || language === 'typescriptreact') {
+                if (parser.extractTypeScriptHierarchy) {
+                    parser.extractTypeScriptHierarchy(rootNode, functions, language);
+                } else if (parser.extractJavaScriptHierarchy) {
+                    // 备用：如果没有专门的 TypeScript 解析器，使用 JavaScript 解析器
+                    parser.extractJavaScriptHierarchy(rootNode, functions, language);
+                }
+            } else if ((language === 'javascript') && parser.extractJavaScriptHierarchy) {
                 parser.extractJavaScriptHierarchy(rootNode, functions, language);
             } else if (language === 'python' && parser.extractPythonHierarchy) {
                 parser.extractPythonHierarchy(rootNode, functions, language);
@@ -767,6 +798,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         return result;
     }
 
+    // 递归查找指定行号的OutlineItem
     private findOutlineItemRecursive(items: OutlineItem[], lineNumber: number): OutlineItem | null {
         for (const item of items) {
             if (lineNumber >= item.startLine && lineNumber <= item.endLine) {

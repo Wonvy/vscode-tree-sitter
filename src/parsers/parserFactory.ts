@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import { CSharpParser } from './csharpParser';
 import { JavaScriptParser } from './javascriptParser';
+import { TypeScriptParser } from './typescriptParser';
 import { PythonParser } from './pythonParser';
 
 export interface IParser {
     extractCSharpHierarchy?(rootNode: any, functions: any[], language: string): void;
     extractJavaScriptHierarchy?(rootNode: any, functions: any[], language: string): void;
+    extractTypeScriptHierarchy?(rootNode: any, functions: any[], language: string): void;
     extractPythonHierarchy?(rootNode: any, functions: any[], language: string): void;
 }
 
@@ -24,8 +26,10 @@ export class ParserFactory {
             case 'csharp':
                 return new CSharpParser(this.outputChannel);
             case 'javascript':
-            case 'typescript':
                 return new JavaScriptParser(this.outputChannel);
+            case 'typescript':
+            case 'typescriptreact':
+                return new TypeScriptParser(this.outputChannel);
             case 'python':
                 return new PythonParser(this.outputChannel);
             default:
@@ -38,7 +42,7 @@ export class ParserFactory {
      * 检查语言是否支持
      */
     public isLanguageSupported(language: string): boolean {
-        const supportedLanguages = ['csharp', 'javascript', 'typescript', 'python'];
+        const supportedLanguages = ['csharp', 'javascript', 'typescript', 'typescriptreact', 'python'];
         return supportedLanguages.includes(language.toLowerCase());
     }
 } 
