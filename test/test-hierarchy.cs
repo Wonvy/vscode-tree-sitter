@@ -41,7 +41,7 @@ namespace TestNamespace
 
 
         // 使用Windows API获取GVML数据  
-        private byte[] GetGVMLDataViaAPI()
+        private byte[] GetGVMLDataViaAPIGetGVMLDataViaAPI()
         {
             try
             {

@@ -39,10 +39,6 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     // 新增：记录当前选中的大纲项，用于双击事件处理
     private currentSelectedItem: OutlineItem | null = null;
 
-    // 新增：双击监听器相关变量
-    private lastClickKey = '';
-    private lastClickTs = 0;
-
     constructor(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
         this.extensionUri = extensionUri;
         this.outputChannel = outputChannel;
@@ -1058,28 +1054,6 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 
                 // 记录当前选中项，用于双击事件
                 this.currentSelectedItem = selectedItem;
-
-                // 双击检测逻辑
-                const item = e.selection[0];
-                if (!item) return;
-
-                // 用"label@startLine"作为键，避免不同同名函数冲突
-                const key = `${item.label}@${(item as any).startLine ?? ''}`;
-                const now = Date.now();
-                const isDouble = this.lastClickKey === key && (now - this.lastClickTs) < 300;
-
-                this.lastClickKey = key;
-                this.lastClickTs = now;
-
-                if (isDouble) {
-                    // 触发搜索命令；命令已兼容对象/字符串两种入参
-                    const timestamp = new Date().toLocaleTimeString();
-                    this.outputChannel.appendLine(`[${timestamp}] 🖱️ 检测到双击，触发搜索: ${item.label}`);
-                    vscode.commands.executeCommand(
-                        'tree-sitter-outline.searchFunction',
-                        (item as any).functionName ?? item.label
-                    );
-                }
             }
         });
         

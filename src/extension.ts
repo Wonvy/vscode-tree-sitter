@@ -13,6 +13,11 @@ export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel('Tree-Sitter Outline');
     context.subscriptions.push(outputChannel);
 
+    // 双击检测变量
+    let lastJumpKey = '';
+    let lastJumpTs = 0;
+    const DOUBLE_CLICK_MS = 300;
+
     // 创建 Provider 与 TreeView，并绑定
     const outlineProvider = new TreeSitterOutlineProvider(context.extensionUri, outputChannel);
     const treeView = vscode.window.createTreeView('tree-sitter-outline', {
@@ -35,6 +40,20 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('tree-sitter-outline.jumpToFunction', async (startLine?: number, functionName?: string) => {
             try {
+                // ① 先做双击检测（基于命令调用本身，可靠！）
+                const key = `${functionName ?? ''}@${startLine ?? ''}`;
+                const now = Date.now();
+                const isDouble = (lastJumpKey === key) && (now - lastJumpTs < DOUBLE_CLICK_MS);
+                lastJumpKey = key;
+                lastJumpTs = now;
+
+                if (isDouble) {
+                    // 双击：触发搜索并直接返回，不再做跳转，以免"抖动"
+                    await vscode.commands.executeCommand('tree-sitter-outline.searchFunction', functionName ?? '');
+                    return;
+                }
+
+                // ② 单击：执行原有的跳转定位逻辑（保持不变）
                 const editor = vscode.window.activeTextEditor;
                 if (!editor || startLine == null) return;
 
