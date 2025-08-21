@@ -53,8 +53,8 @@ export class OutlineItem extends vscode.TreeItem {
         // 设置增强的悬浮提示
         this.tooltip = this.generateEnhancedTooltip();
         
-        // 添加点击事件处理，在跳转后主动触发高亮
-        this.contextValue = 'function-item';
+        // 设置双击事件处理
+        this.contextValue = 'function-item-double-clickable';
     }
 
     // 新增：生成增强的悬浮提示
@@ -186,6 +186,25 @@ export class OutlineItem extends vscode.TreeItem {
     // 新增：获取高亮状态
     public get isHighlighted(): boolean {
         return this._isHighlighted;
+    }
+
+    // 新增：处理双击事件，搜索函数
+    public async handleDoubleClick(): Promise<void> {
+        try {
+            // 执行搜索函数命令
+            await vscode.commands.executeCommand('tree-sitter-outline.searchFunction', this.functionName);
+        } catch (error) {
+            console.error(`双击搜索函数失败: ${error}`);
+        }
+    }
+
+    // 新增：获取搜索命令
+    public getSearchCommand(): vscode.Command {
+        return {
+            command: 'tree-sitter-outline.searchFunction',
+            title: `搜索函数: ${this.functionName}`,
+            arguments: [this.functionName]
+        };
     }
 
     addChild(child: OutlineItem): void {

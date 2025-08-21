@@ -91,6 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
                 outputChannel.appendLine(`[${timestamp}]   - TreeView已绑定: ${treeViewStatus.isBound ? '✅' : '❌'}`);
                 outputChannel.appendLine(`[${timestamp}]   - 抑制标志: ${treeViewStatus.suppressSelectionSync ? '🔒' : '🔓'}`);
                 outputChannel.appendLine(`[${timestamp}]   - 当前选中项: ${treeViewStatus.currentSelection || '无'}`);
+                outputChannel.appendLine(`[${timestamp}]   - 当前函数名: ${treeViewStatus.currentFunctionName || '无'}`);
                 
                 // 测试 getParent 方法
                 const currentItems = outlineProvider.getCurrentOutlineItems();
@@ -143,6 +144,40 @@ export function activate(context: vscode.ExtensionContext) {
             } catch (e) {
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ 强制刷新TreeView选中状态失败: ${e}`);
                 console.error(e);
+            }
+        })
+    );
+
+    // ✅ 新增：搜索函数命令
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tree-sitter-outline.searchFunction', async (arg?: any) => {
+            try {
+                const functionName = (typeof arg === 'string'
+                    ? arg
+                    : (arg?.functionName ?? arg?.label ?? '')
+                ).toString().trim();
+
+                if (!functionName) {
+                    vscode.window.showWarningMessage('未获取到函数名');
+                    return;
+                }
+
+                // 直接用 findInFiles 传参设置搜索关键词并触发搜索
+                await vscode.commands.executeCommand('workbench.action.findInFiles', {
+                    query: functionName,
+                    triggerSearch: true,
+                    isRegex: false,        // 如需支持正则可做成配置
+                    matchWholeWord: true,  // 避免搜索到同名片段
+                    isCaseSensitive: false
+                    // filesToInclude: '',  // 如需限定范围可加
+                    // filesToExclude: ''
+                });
+
+                // （可选）确保切到搜索视图；多数情况下上面的命令已会打开搜索侧栏
+                await vscode.commands.executeCommand('workbench.view.search');
+            } catch (e) {
+                console.error(e);
+                vscode.window.showErrorMessage(`搜索函数失败: ${e}`);
             }
         })
     );

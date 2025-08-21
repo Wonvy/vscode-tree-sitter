@@ -36,6 +36,13 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     // 新增：记录上一次高亮的条目，避免重复刷新/闪烁
     private lastHighlightedItem: OutlineItem | null = null;
 
+    // 新增：记录当前选中的大纲项，用于双击事件处理
+    private currentSelectedItem: OutlineItem | null = null;
+
+    // 新增：双击监听器相关变量
+    private lastClickKey = '';
+    private lastClickTs = 0;
+
     constructor(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
         this.extensionUri = extensionUri;
         this.outputChannel = outputChannel;
@@ -1043,6 +1050,39 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             this.outputChannel.appendLine(`[${visibilityTimestamp}] 👁️ onDidChangeVisibility: ${e.visible}`);
         });
         
+        // 监听选择变化，用于双击事件处理
+        view.onDidChangeSelection(e => {
+            if (e.selection && e.selection.length > 0) {
+                const selectedItem = e.selection[0];
+                this.outputChannel.appendLine(`[${timestamp}] 🎯 选中项变化: ${selectedItem.label}`);
+                
+                // 记录当前选中项，用于双击事件
+                this.currentSelectedItem = selectedItem;
+
+                // 双击检测逻辑
+                const item = e.selection[0];
+                if (!item) return;
+
+                // 用"label@startLine"作为键，避免不同同名函数冲突
+                const key = `${item.label}@${(item as any).startLine ?? ''}`;
+                const now = Date.now();
+                const isDouble = this.lastClickKey === key && (now - this.lastClickTs) < 300;
+
+                this.lastClickKey = key;
+                this.lastClickTs = now;
+
+                if (isDouble) {
+                    // 触发搜索命令；命令已兼容对象/字符串两种入参
+                    const timestamp = new Date().toLocaleTimeString();
+                    this.outputChannel.appendLine(`[${timestamp}] 🖱️ 检测到双击，触发搜索: ${item.label}`);
+                    vscode.commands.executeCommand(
+                        'tree-sitter-outline.searchFunction',
+                        (item as any).functionName ?? item.label
+                    );
+                }
+            }
+        });
+        
         // 验证绑定状态
         if (this.treeView) {
             this.outputChannel.appendLine(`[${timestamp}] 🔍 TreeView绑定验证:`);
@@ -1103,22 +1143,44 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         isBound: boolean;
         suppressSelectionSync: boolean;
         currentSelection: string | null;
+        currentFunctionName: string | null;
         treeViewReady: boolean;
     } {
         let currentSelection: string | null = null;
+        let currentFunctionName: string | null = null;
+        
         if (this.treeView?.selection && this.treeView.selection.length > 0) {
             const item = this.treeView.selection[0];
+            const timestamp = new Date().toLocaleTimeString();
+            
+            this.outputChannel.appendLine(`[${timestamp}] 🔍 getTreeViewStatus 调试信息:`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 选中项类型: ${typeof item}`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 选中项标签: ${item.label} (类型: ${typeof item.label})`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 选中项函数名: ${item.functionName} (类型: ${typeof item.functionName})`);
+            
+            // 获取显示标签
             if (typeof item.label === 'string') {
                 currentSelection = item.label;
             } else if (item.label && typeof item.label === 'object' && 'label' in item.label) {
                 currentSelection = (item.label as any).label;
             }
+            
+            // 获取函数名（这是我们需要的关键信息）
+            if (item.functionName) {
+                currentFunctionName = item.functionName;
+            } else if (typeof item.label === 'string') {
+                currentFunctionName = item.label; // 备用方案
+            }
+            
+            this.outputChannel.appendLine(`[${timestamp}]   - 最终选择: ${currentSelection}`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 最终函数名: ${currentFunctionName}`);
         }
             
         return {
             isBound: !!this.treeView,
             suppressSelectionSync: this.suppressSelectionSync,
             currentSelection: currentSelection,
+            currentFunctionName: currentFunctionName,
             treeViewReady: !!this.treeView && this.isOutlineLoaded()
         };
     }
@@ -1313,6 +1375,33 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 await this.highlightFunctionAtLine(startLine, shouldAutoFocus);
             }
         }, 200); // 使用较长的延迟时间
+    }
+
+    /**
+     * 处理用户双击函数大纲项的操作
+     * 这个方法用于搜索函数
+     */
+    public async handleUserDoubleClick(startLine: number): Promise<void> {
+        this.outputChannel.appendLine(`🎯 用户双击函数大纲项，行号: ${startLine}`);
+        
+        try {
+            // 查找对应的函数项
+            const item = this.findOutlineItemByLine(startLine);
+            if (!item) {
+                this.outputChannel.appendLine(`❌ 第${startLine}行未找到对应函数`);
+                vscode.window.showErrorMessage('未找到对应的函数');
+                return;
+            }
+
+            this.outputChannel.appendLine(`✅ 找到函数: ${item.label} (${item.functionName})`);
+            
+            // 执行搜索函数命令
+            await vscode.commands.executeCommand('tree-sitter-outline.searchFunction', item.functionName);
+            
+        } catch (error) {
+            this.outputChannel.appendLine(`❌ 双击搜索函数失败: ${error}`);
+            vscode.window.showErrorMessage(`搜索函数失败: ${error}`);
+        }
     }
 
     /**

@@ -70,6 +70,19 @@
         "command": "tree-sitter-outline.forceRefreshSelection",
         "title": "强制刷新TreeView选中状态",
         "category": "Tree-sitter Outline"
+      },
+      {
+        "command": "tree-sitter-outline.searchFunction",
+        "title": "搜索函数",
+        "category": "Tree-sitter Outline",
+        "icon": "$(search)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "tree-sitter-outline.searchFunction",
+        "key": "ctrl+shift+f",
+        "when": "view == tree-sitter-outline"
       }
     ],
     "menus": {
@@ -79,6 +92,20 @@
           "when": "view == tree-sitter-outline",
           "group": "navigation"
         }
+      ],
+      "view/item/context": [
+        {
+          "command": "tree-sitter-outline.searchFunction",
+          "when": "view == tree-sitter-outline && viewItem == function-item-double-clickable",
+          "group": "inline"
+        },
+        {
+          "command": "tree-sitter-outline.searchFunction",
+          "when": "view == tree-sitter-outline",
+          "group": "inline",
+          "icon": "$(search)",
+          "title": "搜索函数"
+        }
       ]
     },
     "views": {
@@ -86,7 +113,7 @@
         {
           "id": "tree-sitter-outline",
           "name": "函数大纲",
-          "when": "resourceLangId == python || resourceLangId == javascript || resourceLangId == typescript || resourceLangId == csharp"
+          "when": "true"
         }
       ]
     },
