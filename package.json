@@ -24,11 +24,22 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Tree-sitter Outline",
+      "properties": {
+        "tree-sitter-outline.autoFocusOutlineOnLineClick": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否在点击编辑器行时自动聚焦函数大纲。设置为false时，点击行只会高亮大纲中的对应函数，不会自动切换到函数大纲界面。"
+        }
+      }
+    },
     "commands": [
       {
         "command": "tree-sitter-outline.refresh",
         "title": "刷新函数大纲",
-        "category": "Tree-sitter Outline"
+        "category": "Tree-sitter Outline",
+        "icon": "$(refresh)"
       },
       {
         "command": "tree-sitter-outline.checkStatus",

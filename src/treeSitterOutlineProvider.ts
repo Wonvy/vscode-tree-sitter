@@ -672,20 +672,24 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 if (this.isOutlineLoaded() && this.isLineInLoadedFunctions(lineNumber)) {
                     this.outputChannel.appendLine(`[${timestamp}] ✅ 第${lineNumber}行在已加载函数范围内，准备高亮`);
                     
+                    // 获取配置，决定是否自动聚焦大纲
+                    const config = getConfig();
+                    const shouldAutoFocus = config.autoFocusOutlineOnLineClick;
+                    
                     // 如果是用户点击操作，延迟处理高亮，避免与大纲刷新冲突
                     if (isUserClicking) {
-                        this.outputChannel.appendLine(`[${timestamp}] ⏰ 用户点击操作，延迟200ms处理高亮`);
+                        this.outputChannel.appendLine(`[${timestamp}] ⏰ 用户点击操作，延迟200ms处理高亮，自动聚焦: ${shouldAutoFocus}`);
                         setTimeout(async () => {
                             const highlightTimestamp = new Date().toLocaleTimeString();
                             this.outputChannel.appendLine(`[${highlightTimestamp}] 🎯 开始执行延迟高亮，行号: ${lineNumber}`);
-                            await this.highlightFunctionAtLine(lineNumber);
+                            await this.highlightFunctionAtLine(lineNumber, shouldAutoFocus);
                         }, 200); // 增加延迟时间
                     } else {
-                        this.outputChannel.appendLine(`[${timestamp}] ⏰ 正常光标移动，延迟100ms处理高亮`);
+                        this.outputChannel.appendLine(`[${timestamp}] ⏰ 正常光标移动，延迟100ms处理高亮，自动聚焦: ${shouldAutoFocus}`);
                         setTimeout(async () => {
                             const highlightTimestamp = new Date().toLocaleTimeString();
                             this.outputChannel.appendLine(`[${highlightTimestamp}] 🎯 开始执行正常高亮，行号: ${lineNumber}`);
-                            await this.highlightFunctionAtLine(lineNumber);
+                            await this.highlightFunctionAtLine(lineNumber, shouldAutoFocus);
                         }, 100);
                     }
                 } else {
@@ -777,7 +781,7 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         return null;
     }
 
-    public async highlightFunctionAtLine(lineNumber: number): Promise<void> {
+    public async highlightFunctionAtLine(lineNumber: number, autoFocus: boolean = true): Promise<void> {
         const timestamp = new Date().toLocaleTimeString();
         this.outputChannel.appendLine(`[${timestamp}] 🎯 highlightFunctionAtLine 开始执行，行号: ${lineNumber}`);
         
@@ -841,8 +845,31 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                     return;
                 }
                 
-                this.outputChannel.appendLine(`[${timestamp}] 🎯 调用treeView.reveal，参数: select=true, focus=true, expand=true`);
-                await this.treeView.reveal(item, { select: true, focus: true, expand: true });
+                // 根据autoFocus参数决定reveal的行为
+                if (autoFocus) {
+                    // 启用自动聚焦：正常reveal行为
+                    this.outputChannel.appendLine(`[${timestamp}] 🎯 调用treeView.reveal，参数: select=true, focus=true, expand=true`);
+                    await this.treeView.reveal(item, { select: true, focus: true, expand: true });
+                } else {
+                    // 禁用自动聚焦：只选中和展开，不聚焦
+                    this.outputChannel.appendLine(`[${timestamp}] 🎯 调用treeView.reveal，参数: select=true, focus=false, expand=true`);
+                    await this.treeView.reveal(item, { select: true, focus: false, expand: true });
+                    
+                    // 额外确保不会意外聚焦：延迟后再次检查焦点状态
+                    setTimeout(() => {
+                        if (prevEditor) {  // 添加空值检查
+                            const currentEditor = vscode.window.activeTextEditor;
+                            if (currentEditor && currentEditor !== prevEditor) {
+                                this.outputChannel.appendLine(`[${timestamp}] ⚠️ 检测到意外焦点变化，尝试恢复编辑器焦点`);
+                                vscode.window.showTextDocument(prevEditor.document, {
+                                    viewColumn: prevEditor.viewColumn,
+                                    preserveFocus: false
+                                });
+                            }
+                        }
+                    }, 50);
+                }
+                
                 this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView.reveal 执行成功`);
                 
                 // 验证选中状态
@@ -881,15 +908,17 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         }
 
         // 如果不想长期抢焦点：把焦点还回编辑器
-        // （若你希望大纲一直保持 focused，就注释掉下面三行）
-        if (prevEditor) {
-            this.outputChannel.appendLine(`[${timestamp}] 🔄 将焦点切回编辑器...`);
+        // 根据autoFocus参数决定是否强制切回编辑器
+        if (prevEditor && !autoFocus) {
+            this.outputChannel.appendLine(`[${timestamp}] 🔄 自动聚焦已禁用，将焦点切回编辑器...`);
             await vscode.window.showTextDocument(prevEditor.document, {
                 viewColumn: prevEditor.viewColumn,
                 preserveFocus: false,      // 把焦点切回编辑器
                 preview: true
             });
             this.outputChannel.appendLine(`[${timestamp}] ✅ 焦点已切回编辑器`);
+        } else if (prevEditor && autoFocus) {
+            this.outputChannel.appendLine(`[${timestamp}] 🎯 自动聚焦已启用，保持当前焦点状态`);
         }
 
         this.outputChannel.appendLine(

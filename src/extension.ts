@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TreeSitterOutlineProvider } from './treeSitterOutlineProvider';
 import { OutlineItem } from './outlineItem';
+import { getConfig } from './config';
 
 /**
  * 入口
@@ -61,7 +62,8 @@ export function activate(context: vscode.ExtensionContext) {
                 editor.revealRange(new vscode.Range(finalPos, finalPos), vscode.TextEditorRevealType.InCenter);
 
                 // 通知 provider 高亮并同步 TreeView 选中
-                await outlineProvider.highlightFunctionAtLine(startLine);
+                const config = getConfig();
+                await outlineProvider.highlightFunctionAtLine(startLine, config.autoFocusOutlineOnLineClick);
             } catch (e) {
                 console.error(e);
             }
