@@ -1203,6 +1203,57 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     }
     
     /**
+     * 展开所有节点
+     * 不抢焦点，只更新展开状态
+     */
+    public async expandAll(): Promise<void> {
+        const ts = new Date().toLocaleTimeString();
+        this.outputChannel.appendLine(`[${ts}] ⬇️ 执行展开全部`);
+
+        if (!this.currentOutlineItems || this.currentOutlineItems.length === 0) {
+            this.outputChannel.appendLine(`[${ts}] ⚠️ 当前没有大纲数据，先刷新再尝试展开`);
+            this.refresh();
+            // 给视图一点时间构建
+            await new Promise(r => setTimeout(r, 80));
+            if (!this.currentOutlineItems || this.currentOutlineItems.length === 0) return;
+        }
+
+        // 收集所有"有子节点"的元素（包含多级）
+        const toExpand: OutlineItem[] = [];
+        const collect = (items: OutlineItem[]) => {
+            for (const it of items) {
+                if (it.children && it.children.length) {
+                    toExpand.push(it);
+                    collect(it.children);
+                }
+            }
+        };
+        collect(this.currentOutlineItems);
+
+        if (!this.treeView) {
+            // 退路：没有句柄就只改状态 + fire，部分场景也能生效
+            for (const it of toExpand) it.setExpanded();
+            this._onDidChangeTreeData.fire();
+            this.outputChannel.appendLine(`[${ts}] ✅ 扩展状态已设置（无 TreeView 句柄，已触发刷新）`);
+            return;
+        }
+
+        // 不抢焦点：focus=false，select=false
+        this.suppressSelectionSync = true;
+        try {
+            for (const it of toExpand) {
+                it.setExpanded(); // 更新我们自己的模型
+                await this.treeView.reveal(it, { expand: true, focus: false, select: false });
+            }
+            // 通知视图重绘（可选，但更稳）
+            this._onDidChangeTreeData.fire();
+            this.outputChannel.appendLine(`[${ts}] ✅ 展开全部完成，展开节点数: ${toExpand.length}`);
+        } finally {
+            setTimeout(() => { this.suppressSelectionSync = false; }, 120);
+        }
+    }
+    
+    /**
      * 选中指定的TreeView项
      */
     private async selectTreeViewItem(item: OutlineItem): Promise<void> {

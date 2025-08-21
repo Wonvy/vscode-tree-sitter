@@ -35,6 +35,13 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // ✅ 新增：展开全部命令
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tree-sitter-outline.expandAll', () => {
+            outlineProvider.expandAll();
+        })
+    );
+
     // ✅ 统一命令ID：tree-sitter-outline.jumpToFunction
     // 期望参数：(startLine: number, functionName?: string)
     context.subscriptions.push(

@@ -76,6 +76,12 @@
         "title": "搜索函数",
         "category": "Tree-sitter Outline",
         "icon": "$(search)"
+      },
+      {
+        "command": "tree-sitter-outline.expandAll",
+        "title": "展开全部",
+        "category": "Tree-sitter Outline",
+        "icon": "$(expand-all)"
       }
     ],
     "keybindings": [
@@ -90,7 +96,12 @@
         {
           "command": "tree-sitter-outline.refresh",
           "when": "view == tree-sitter-outline",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "tree-sitter-outline.expandAll",
+          "when": "view == tree-sitter-outline",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

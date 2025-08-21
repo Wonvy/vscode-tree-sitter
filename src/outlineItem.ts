@@ -219,4 +219,10 @@ export class OutlineItem extends vscode.TreeItem {
             this.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         }
     }
+
+    setCollapsed(): void {
+        if (this.children.length > 0) {
+            this.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        }
+    }
 } 
