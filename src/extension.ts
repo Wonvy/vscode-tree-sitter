@@ -188,9 +188,16 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
+                // 新增：如果是类方法（包含点号），提取方法名部分
+                const pureFunctionName = functionName.includes('.') 
+                    ? functionName.split('.').pop() || functionName 
+                    : functionName;
+
+                console.log(`🔍 搜索函数: 原始名称="${functionName}", 纯方法名="${pureFunctionName}"`);
+
                 // 直接用 findInFiles 传参设置搜索关键词并触发搜索
                 await vscode.commands.executeCommand('workbench.action.findInFiles', {
-                    query: functionName,
+                    query: pureFunctionName,  // 使用纯方法名进行搜索
                     triggerSearch: true,
                     isRegex: false,        // 如需支持正则可做成配置
                     matchWholeWord: true,  // 避免搜索到同名片段
@@ -209,8 +216,22 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
-/* ----------------------------- 工具函数 ----------------------------- */
 
+/**
+ * 将嵌套的 OutlineItem 树结构“拍平”为一维数组，便于遍历和查找。
+ * 
+ * @param {OutlineItem[]} items - 需要拍平的 OutlineItem 数组（可以是多层嵌套的树结构）。
+ * @returns {OutlineItem[]} 拍平成一维的 OutlineItem 数组，包含所有节点（父节点和子节点）。
+ * 
+ * 用法示例：
+ *   const flatList = flattenOutline(treeItems);
+ *   // flatList 现在包含所有大纲项，顺序为先序遍历
+ * 
+ * 注意事项：
+ *   - 该方法采用递归方式遍历所有子节点。
+ *   - 返回的数组顺序为先序遍历（父节点在前，子节点在后）。
+ *   - 不会修改原始树结构，仅返回新的一维数组。
+ */
 function flattenOutline(items: OutlineItem[]): OutlineItem[] {
     const out: OutlineItem[] = [];
     const walk = (arr: OutlineItem[]) => {

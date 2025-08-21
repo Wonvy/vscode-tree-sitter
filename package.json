@@ -2,7 +2,7 @@
   "name": "vscode-tree-sitter-outline",
   "displayName": "Tree-sitter Outline",
   "description": "在VSCode中显示函数大纲和中文注释，支持Python、JavaScript、TypeScript、C#等语言",
-  "version": "0.0.1",
+  "version": "1.0.1",
   "publisher": "tree-sitter-outline",
   "icon": "icon-128.png",
   "repository": {
