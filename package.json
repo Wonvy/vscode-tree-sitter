@@ -31,6 +31,11 @@
           "type": "boolean",
           "default": false,
           "description": "是否在点击编辑器行时自动聚焦函数大纲。设置为false时，点击行只会高亮大纲中的对应函数，不会自动切换到函数大纲界面。"
+        },
+        "tree-sitter-outline.revealOnlyWhenVisible": {
+          "type": "boolean",
+          "default": true,
+          "description": "仅当函数大纲视图可见时才执行 reveal；不可见时只更新内容，不切换视图。设置为false时，即使视图不可见也会尝试reveal（可能导致自动切换视图）。"
         }
       }
     },

@@ -784,6 +784,16 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     public async highlightFunctionAtLine(lineNumber: number, autoFocus: boolean = true): Promise<void> {
         const timestamp = new Date().toLocaleTimeString();
         this.outputChannel.appendLine(`[${timestamp}] 🎯 highlightFunctionAtLine 开始执行，行号: ${lineNumber}`);
+        this.outputChannel.appendLine(`[${timestamp}] ⚙️ 配置检查: autoFocus 参数 = ${autoFocus}`);
+        
+        // 额外验证：从配置中重新获取值进行对比
+        const config = getConfig();
+        const configValue = config.autoFocusOutlineOnLineClick;
+        this.outputChannel.appendLine(`[${timestamp}] ⚙️ 配置对比: 传入参数 = ${autoFocus}, 配置值 = ${configValue}`);
+        
+        if (autoFocus !== configValue) {
+            this.outputChannel.appendLine(`[${timestamp}] ⚠️ 警告: 传入参数与配置值不匹配！`);
+        }
         
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -832,8 +842,31 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         this.outputChannel.appendLine(`[${timestamp}] 🔄 强制刷新高亮状态...`);
         this.forceRefreshHighlight();
 
-        // === 关键：临时聚焦大纲，确保出现 focused selected ===
+        // === 关键：只有当视图可见时才 reveal，避免切换视图容器 ===
+        // 记录一下当前编辑器（用于可选的焦点恢复）
         const prevEditor = vscode.window.activeTextEditor;
+
+        // ⚠️ 新增：如果 TreeView 不可见，直接返回，不做 reveal
+        if (!this.treeView || this.treeView.visible !== true) {
+            this.outputChannel.appendLine(`[${timestamp}] 👀 函数大纲视图当前不可见，只更新高亮，不切换视图`);
+            // 已经完成：清旧高亮 -> 设置新高亮 -> ensureParentExpanded -> forceRefreshHighlight
+            // 此处直接结束，避免切换侧边栏
+            this.outputChannel.appendLine(
+                `[${timestamp}] 🎉 高亮并选中完成: ${item.label} (第${lineNumber}行) - 仅更新内容，未切换视图`
+            );
+            return;
+        }
+
+        // 检查配置：是否启用可见性保护
+        if (config.revealOnlyWhenVisible && (!this.treeView || this.treeView.visible !== true)) {
+            this.outputChannel.appendLine(`[${timestamp}] 👀 可见性保护已启用，函数大纲视图当前不可见，只更新高亮，不切换视图`);
+            this.outputChannel.appendLine(
+                `[${timestamp}] 🎉 高亮并选中完成: ${item.label} (第${lineNumber}行) - 仅更新内容，未切换视图`
+            );
+            return;
+        }
+
+        // ↓↓↓ 仅当可见时才 reveal ↓↓↓
         this.outputChannel.appendLine(`[${timestamp}] 🎯 开始选中TreeView项...`);
         
         const revealOnce = async () => {
@@ -1004,10 +1037,17 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
         this.treeView = view;
         this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView句柄绑定成功`);
         
+        // 监听可见性变化，用于调试
+        view.onDidChangeVisibility(e => {
+            const visibilityTimestamp = new Date().toLocaleTimeString();
+            this.outputChannel.appendLine(`[${visibilityTimestamp}] 👁️ onDidChangeVisibility: ${e.visible}`);
+        });
+        
         // 验证绑定状态
         if (this.treeView) {
             this.outputChannel.appendLine(`[${timestamp}] 🔍 TreeView绑定验证:`);
             this.outputChannel.appendLine(`[${timestamp}]   - 句柄存在: ✅`);
+            this.outputChannel.appendLine(`[${timestamp}]   - 当前可见性: ${this.treeView.visible ? '可见' : '不可见'}`);
             this.outputChannel.appendLine(`[${timestamp}]   - 当前选中: ${this.treeView.selection?.length || 0} 项`);
             
             // 检查TreeView是否就绪
@@ -1131,7 +1171,24 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
      */
     private async selectTreeViewItem(item: OutlineItem): Promise<void> {
         const timestamp = new Date().toLocaleTimeString();
-        this.outputChannel.appendLine(`[${timestamp}] 🎯 开始选中TreeView项: ${item.label}`);
+        this.outputChannel.appendLine(`[${timestamp}] 🎯 选中TreeView项请求: ${item.label}`);
+
+        // ⚠️ 新增：不可见就不 reveal，避免切换视图容器
+        if (!this.treeView || this.treeView.visible !== true) {
+            this.outputChannel.appendLine(`[${timestamp}] 👀 函数大纲视图不可见，跳过 reveal（不切换视图）`);
+            return;
+        }
+
+        // 检查配置：是否启用可见性保护
+        const config = getConfig();
+        if (config.revealOnlyWhenVisible && (!this.treeView || this.treeView.visible !== true)) {
+            this.outputChannel.appendLine(`[${timestamp}] 👀 可见性保护已启用，函数大纲视图当前不可见，跳过 reveal（不切换视图）`);
+            return;
+        }
+
+        // 获取配置，决定是否自动聚焦
+        const shouldAutoFocus = config.autoFocusOutlineOnLineClick;
+        this.outputChannel.appendLine(`[${timestamp}] ⚙️ 配置检查: autoFocusOutlineOnLineClick = ${shouldAutoFocus}`);
         
         try {
             // 设置抑制标志，防止循环触发
@@ -1142,8 +1199,14 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
             this.ensureParentExpanded(item);
             this.outputChannel.appendLine(`[${timestamp}] 📂 父级展开完成`);
             
-            // 选中并聚焦
-            await this.treeView!.reveal(item, { select: true, focus: true, expand: true });
+            // 根据配置决定是否聚焦
+            if (shouldAutoFocus) {
+                this.outputChannel.appendLine(`[${timestamp}] 🎯 自动聚焦已启用，选中并聚焦`);
+                await this.treeView!.reveal(item, { select: true, focus: true, expand: true });
+            } else {
+                this.outputChannel.appendLine(`[${timestamp}] 🎯 自动聚焦已禁用，只选中不聚焦`);
+                await this.treeView!.reveal(item, { select: true, focus: false, expand: true });
+            }
             this.outputChannel.appendLine(`[${timestamp}] ✅ TreeView.reveal 执行成功`);
             
             // 验证选中状态
@@ -1227,6 +1290,10 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
     public async handleUserClick(startLine: number): Promise<void> {
         this.outputChannel.appendLine(`🎯 用户点击函数大纲项，行号: ${startLine}`);
         
+        // 获取配置，决定是否自动聚焦
+        const config = getConfig();
+        const shouldAutoFocus = config.autoFocusOutlineOnLineClick;
+        
         // 延迟处理，确保光标跳转完成
         setTimeout(async () => {
             // 检查当前光标位置
@@ -1235,15 +1302,15 @@ export class TreeSitterOutlineProvider implements vscode.TreeDataProvider<Outlin
                 const currentLine = editor.selection.active.line + 1;
                 if (currentLine === startLine) {
                     // 光标位置匹配，执行高亮
-                    await this.highlightFunctionAtLine(startLine);
+                    await this.highlightFunctionAtLine(startLine, shouldAutoFocus);
                 } else {
                     // 光标位置不匹配，记录警告并尝试高亮
                     this.outputChannel.appendLine(`⚠️ 光标跳转可能失败，当前行: ${currentLine}, 目标行: ${startLine}`);
-                    await this.highlightFunctionAtLine(startLine);
+                    await this.highlightFunctionAtLine(startLine, shouldAutoFocus);
                 }
             } else {
                 // 没有活动编辑器，直接高亮
-                await this.highlightFunctionAtLine(startLine);
+                await this.highlightFunctionAtLine(startLine, shouldAutoFocus);
             }
         }, 200); // 使用较长的延迟时间
     }

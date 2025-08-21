@@ -21,6 +21,9 @@ export interface TreeSitterOutlineConfig {
     
     // 是否在点击编辑器行时自动聚焦函数大纲
     autoFocusOutlineOnLineClick: boolean;
+    
+    // 是否仅当函数大纲视图可见时才执行 reveal
+    revealOnlyWhenVisible: boolean;
 }
 
 export const defaultConfig: TreeSitterOutlineConfig = {
@@ -30,7 +33,8 @@ export const defaultConfig: TreeSitterOutlineConfig = {
     showFunctionNotFoundWarning: false,
     enableDebouncedRefresh: true,
     autoRefreshOnContentChange: true,
-    autoFocusOutlineOnLineClick: false
+    autoFocusOutlineOnLineClick: false,
+    revealOnlyWhenVisible: true
 };
 
 export function getConfig(): TreeSitterOutlineConfig {
@@ -43,7 +47,8 @@ export function getConfig(): TreeSitterOutlineConfig {
         showFunctionNotFoundWarning: vscodeConfig.get('showFunctionNotFoundWarning', defaultConfig.showFunctionNotFoundWarning),
         enableDebouncedRefresh: vscodeConfig.get('enableDebouncedRefresh', defaultConfig.enableDebouncedRefresh),
         autoRefreshOnContentChange: vscodeConfig.get('autoRefreshOnContentChange', defaultConfig.autoRefreshOnContentChange),
-        autoFocusOutlineOnLineClick: vscodeConfig.get('autoFocusOutlineOnLineClick', defaultConfig.autoFocusOutlineOnLineClick)
+        autoFocusOutlineOnLineClick: vscodeConfig.get('autoFocusOutlineOnLineClick', defaultConfig.autoFocusOutlineOnLineClick),
+        revealOnlyWhenVisible: vscodeConfig.get('revealOnlyWhenVisible', defaultConfig.revealOnlyWhenVisible)
     };
     
     return config;
