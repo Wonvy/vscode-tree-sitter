@@ -3,7 +3,7 @@
   "displayName": "Tree-sitter Outline",
   "description": "在VSCode中显示函数大纲和中文注释，支持Python、JavaScript、TypeScript、C#等语言",
   "version": "1.0.1",
-  "publisher": "tree-sitter-outline",
+  "publisher": "Wonvy",
   "icon": "icon-128.png",
   "repository": {
     "type": "git",
